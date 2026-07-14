@@ -1,0 +1,17 @@
+{
+  "name": "00o-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "00o.uz — O'zbek tilidagi eng katta onlayn platforma",
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "db:migrate": "pnpm --filter @00o/database migrate",
+    "db:seed": "pnpm --filter @00o/database seed",
+    "db:studio": "pnpm --filter @00o/database studio"
+  },
+  "engines": { "node": ">=20.0.0", "pnpm": ">=9.0.0" },
+  "packageManager": "pnpm@9.12.0"
+}
