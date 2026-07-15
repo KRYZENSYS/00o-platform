@@ -1,0 +1,28 @@
+name = "00o-uz-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-15"
+compatibility_flags = ["nodejs_compat"]
+
+# D1 Database
+[[d1_databases]]
+binding = "DB"
+database_name = "00o-db"
+database_id = "PLACEHOLDER_WILL_BE_SET_IN_CLOUDFLARE"
+
+# R2 Storage
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "00o-uploads"
+
+# Environment variables (sensitive ones go to secrets)
+[vars]
+NODE_ENV = "production"
+JWT_ACCESS_EXPIRES_IN = "15m"
+JWT_REFRESH_EXPIRES_IN = "30d"
+ALLOWED_ORIGINS = "https://00o-uz.pages.dev,https://www.00o.uz"
+
+# Secrets (set via wrangler secret put):
+# GROQ_API_KEY
+# JWT_ACCESS_SECRET
+# JWT_REFRESH_SECRET
+# TELEGRAM_BOT_TOKEN
