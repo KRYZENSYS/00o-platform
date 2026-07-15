@@ -1,0 +1,15 @@
+name = "00o-web"
+compatibility_date = "2025-01-15"
+pages_build_output_dir = "./.vercel/output/static"
+
+[build]
+command = "cd ../.. && pnpm install --frozen-lockfile=false && cd apps/web && pnpm build"
+
+[vars]
+NEXT_PUBLIC_API_URL = "https://api.00o-uz.workers.dev/api/v1"
+NEXT_PUBLIC_WS_URL = "wss://api.00o-uz.workers.dev/ws"
+NEXT_PUBLIC_APP_URL = "https://00o-uz.pages.dev"
+NEXT_PUBLIC_TELEGRAM_BOT_USERNAME = "ooouzbot"
+NEXT_PUBLIC_ENABLE_AI = "true"
+NEXT_PUBLIC_ENABLE_MARKETPLACE = "true"
+NEXT_PUBLIC_ENABLE_JOBS = "true"
