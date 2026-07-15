@@ -1,193 +1,176 @@
-"""Chat, Message, Feed, Notification models."""
+"""Chat, Message, Post, Comment, Like models."""
 from datetime import datetime
-from sqlalchemy import String, Text, Integer, DateTime, ForeignKey, Boolean, JSON
-from sqlalchemy.orm import Mapped, mapped_column
-from typing import Optional
-
+from sqlalchemy import (
+    Column, String, Integer, Boolean, DateTime, Text, ForeignKey, JSON, Index, BigInteger,
+)
+from sqlalchemy.orm import relationship
 from app.core.database import Base
+import uuid
+
+
+def _uuid():
+    return str(uuid.uuid4())
 
 
 class Chat(Base):
+    """Chat room (direct or group)."""
     __tablename__ = "chats"
+    id = Column(Integer, primary_key=True, index=True)
+    type = Column(String(20), default="direct", index=True)  # direct, group, channel
+    name = Column(String(200), nullable=True)
+    description = Column(Text, nullable=True)
+    avatar = Column(String(500), nullable=True)
+    members = Column(JSON, default=list)  # list of user ids
+    admins = Column(JSON, default=list)
+    last_message = Column(Text, nullable=True)
+    last_message_at = Column(DateTime, nullable=True)
+    unread_counts = Column(JSON, default=dict)  # {user_id: count}
+    is_archived = Column(Boolean, default=False)
+    is_pinned = Column(Boolean, default=False)
+    metadata_json = Column("metadata_json", JSON, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    type: Mapped[str] = mapped_column(String(20), default="direct")  # direct, group, channel
-    name: Mapped[Optional[str]] = mapped_column(String(255))
-    avatar: Mapped[Optional[str]] = mapped_column(String(500))
-    description: Mapped[Optional[str]] = mapped_column(Text)
-    members: Mapped[list] = mapped_column(JSON, default=list)  # list of user IDs
-    admins: Mapped[list] = mapped_column(JSON, default=list)
-    last_message: Mapped[Optional[str]] = mapped_column(Text)
-    last_message_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
-    unread_counts: Mapped[dict] = mapped_column(JSON, default=dict)  # {user_id: count}
-    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    messages = relationship("Message", back_populates="chat", cascade="all, delete-orphan")
 
-    def to_dict(self) -> dict:
+    def to_dict(self):
         return {
-            "id": self.id,
-            "type": self.type,
-            "name": self.name,
-            "avatar": self.avatar,
-            "description": self.description,
-            "members": self.members,
-            "admins": self.admins,
-            "lastMessage": self.last_message,
-            "lastMessageAt": self.last_message_at.isoformat() if self.last_message_at else None,
+            "id": self.id, "type": self.type, "name": self.name, "description": self.description,
+            "avatar": self.avatar, "members": self.members or [], "admins": self.admins or [],
+            "lastMessage": self.last_message, "lastMessageAt": self.last_message_at.isoformat() if self.last_message_at else None,
+            "isArchived": self.is_archived, "isPinned": self.is_pinned,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }
 
 
 class Message(Base):
+    """Chat message."""
     __tablename__ = "messages"
+    id = Column(BigInteger, primary_key=True, index=True)
+    chat_id = Column(Integer, ForeignKey("chats.id", ondelete="CASCADE"), index=True)
+    sender_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    type = Column(String(20), default="text")  # text, image, file, voice, system
+    content = Column(Text, nullable=False)
+    attachments = Column(JSON, default=list)  # list of {url, type, name, size}
+    reply_to = Column(BigInteger, ForeignKey("messages.id"), nullable=True)
+    read_by = Column(JSON, default=list)  # list of user ids
+    reactions = Column(JSON, default=dict)  # {user_id: emoji}
+    is_edited = Column(Boolean, default=False)
+    is_deleted = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    chat_id: Mapped[int] = mapped_column(Integer, ForeignKey("chats.id", ondelete="CASCADE"), index=True)
-    sender_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    type: Mapped[str] = mapped_column(String(20), default="text")  # text, image, file, audio, system
-    content: Mapped[str] = mapped_column(Text)
-    attachments: Mapped[list] = mapped_column(JSON, default=list)
-    reply_to: Mapped[Optional[int]] = mapped_column(Integer)
-    read_by: Mapped[list] = mapped_column(JSON, default=list)
-    is_edited: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    chat = relationship("Chat", back_populates="messages")
 
-    def to_dict(self) -> dict:
+    def to_dict(self):
         return {
-            "id": self.id,
-            "chatId": self.chat_id,
-            "senderId": self.sender_id,
-            "type": self.type,
-            "content": self.content,
-            "attachments": self.attachments,
-            "replyTo": self.reply_to,
-            "readBy": self.read_by,
-            "isEdited": self.is_edited,
+            "id": self.id, "chatId": self.chat_id, "senderId": self.sender_id, "type": self.type,
+            "content": self.content, "attachments": self.attachments or [],
+            "replyTo": self.reply_to, "readBy": self.read_by or [], "reactions": self.reactions or {},
+            "isEdited": self.is_edited, "isDeleted": self.is_deleted,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }
 
 
 class Post(Base):
+    """Social feed post."""
     __tablename__ = "posts"
+    id = Column(BigInteger, primary_key=True, index=True)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    content = Column(Text, nullable=False)
+    media = Column(JSON, default=list)  # list of {url, type, thumbnail}
+    media_type = Column(String(20), default="text")  # text, image, video, link, poll
+    tags = Column(JSON, default=list)
+    mentions = Column(JSON, default=list)
+    hashtags = Column(JSON, default=list)
+    visibility = Column(String(20), default="public")  # public, followers, private
+    is_pinned = Column(Boolean, default=False)
+    is_featured = Column(Boolean, default=False)
+    is_hidden = Column(Boolean, default=False)
+    likes_count = Column(Integer, default=0, index=True)
+    comments_count = Column(Integer, default=0)
+    shares_count = Column(Integer, default=0)
+    views_count = Column(Integer, default=0)
+    startup_id = Column(Integer, ForeignKey("startups.id"), nullable=True)
+    service_id = Column(Integer, nullable=True)
+    job_id = Column(Integer, nullable=True)
+    metadata_json = Column("metadata_json", JSON, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    content: Mapped[str] = mapped_column(Text)
-    media: Mapped[list] = mapped_column(JSON, default=list)  # [{type, url, thumbnail}]
-    media_type: Mapped[str] = mapped_column(String(20), default="text")  # text, image, video, link
-    tags: Mapped[list] = mapped_column(JSON, default=list)
-    mentions: Mapped[list] = mapped_column(JSON, default=list)
-    hashtags: Mapped[list] = mapped_column(JSON, default=list)
-    visibility: Mapped[str] = mapped_column(String(20), default="public")  # public, followers, private
+    __table_args__ = (Index("idx_post_user_created", "user_id", "created_at"),)
 
-    # Related entities
-    startup_id: Mapped[Optional[int]] = mapped_column(Integer)
-    service_id: Mapped[Optional[int]] = mapped_column(Integer)
-    job_id: Mapped[Optional[int]] = mapped_column(Integer)
-
-    # Engagement
-    likes_count: Mapped[int] = mapped_column(Integer, default=0)
-    comments_count: Mapped[int] = mapped_column(Integer, default=0)
-    shares_count: Mapped[int] = mapped_column(Integer, default=0)
-    views_count: Mapped[int] = mapped_column(Integer, default=0)
-
-    is_pinned: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_edited: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_hidden: Mapped[bool] = mapped_column(Boolean, default=False)
-
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    def to_dict(self) -> dict:
+    def to_dict(self):
         return {
-            "id": self.id,
-            "userId": self.user_id,
-            "content": self.content,
-            "media": self.media,
-            "mediaType": self.media_type,
-            "tags": self.tags,
-            "mentions": self.mentions,
-            "hashtags": self.hashtags,
-            "visibility": self.visibility,
-            "startupId": self.startup_id,
-            "serviceId": self.service_id,
-            "jobId": self.job_id,
-            "likesCount": self.likes_count,
-            "commentsCount": self.comments_count,
-            "sharesCount": self.shares_count,
-            "viewsCount": self.views_count,
+            "id": self.id, "userId": self.user_id, "content": self.content, "media": self.media or [],
+            "mediaType": self.media_type, "tags": self.tags or [], "mentions": self.mentions or [],
+            "hashtags": self.hashtags or [], "visibility": self.visibility,
+            "isPinned": self.is_pinned, "isFeatured": self.is_featured, "isHidden": self.is_hidden,
+            "likesCount": self.likes_count, "commentsCount": self.comments_count,
+            "sharesCount": self.shares_count, "viewsCount": self.views_count,
+            "startupId": self.startup_id, "serviceId": self.service_id, "jobId": self.job_id,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }
 
 
 class Comment(Base):
+    """Post comment."""
     __tablename__ = "comments"
+    id = Column(BigInteger, primary_key=True, index=True)
+    post_id = Column(BigInteger, ForeignKey("posts.id", ondelete="CASCADE"), index=True)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    parent_id = Column(BigInteger, ForeignKey("comments.id"), nullable=True)
+    content = Column(Text, nullable=False)
+    likes_count = Column(Integer, default=0)
+    is_edited = Column(Boolean, default=False)
+    is_hidden = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    post_id: Mapped[int] = mapped_column(Integer, ForeignKey("posts.id", ondelete="CASCADE"), index=True)
-    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    content: Mapped[str] = mapped_column(Text)
-    parent_id: Mapped[Optional[int]] = mapped_column(Integer)  # for nested comments
-    likes_count: Mapped[int] = mapped_column(Integer, default=0)
-    is_edited: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-    def to_dict(self) -> dict:
+    def to_dict(self):
         return {
-            "id": self.id,
-            "postId": self.post_id,
-            "userId": self.user_id,
-            "content": self.content,
-            "parentId": self.parent_id,
-            "likesCount": self.likes_count,
+            "id": self.id, "postId": self.post_id, "userId": self.user_id, "parentId": self.parent_id,
+            "content": self.content, "likesCount": self.likes_count, "isEdited": self.is_edited,
+            "isHidden": self.is_hidden,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }
 
 
 class Like(Base):
+    """Like (post, comment, startup, service, etc)."""
     __tablename__ = "likes"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    target_type = Column(String(20), index=True)  # post, comment, startup, service, job
+    target_id = Column(BigInteger, index=True)
+    reaction = Column(String(10), default="like")  # like, love, fire, wow
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    target_type: Mapped[str] = mapped_column(String(30))  # post, comment, startup, service
-    target_id: Mapped[int] = mapped_column(Integer, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    __table_args__ = (Index("idx_like_unique", "user_id", "target_type", "target_id", unique=True),)
 
-
-class Notification(Base):
-    __tablename__ = "notifications"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    type: Mapped[str] = mapped_column(String(50))  # like, comment, follow, message, etc
-    title: Mapped[str] = mapped_column(String(255))
-    body: Mapped[Optional[str]] = mapped_column(Text)
-    icon: Mapped[Optional[str]] = mapped_column(String(50))
-    image: Mapped[Optional[str]] = mapped_column(String(500))
-    action_url: Mapped[Optional[str]] = mapped_column(String(500))
-    actor_id: Mapped[Optional[str]] = mapped_column(String(32))
-    target_type: Mapped[Optional[str]] = mapped_column(String(30))
-    target_id: Mapped[Optional[int]] = mapped_column(Integer)
-    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
-    read_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
-
-    def to_dict(self) -> dict:
+    def to_dict(self):
         return {
-            "id": self.id,
-            "type": self.type,
-            "title": self.title,
-            "body": self.body,
-            "icon": self.icon,
-            "image": self.image,
-            "actionUrl": self.action_url,
-            "actorId": self.actor_id,
-            "targetType": self.target_type,
-            "targetId": self.target_id,
-            "isRead": self.is_read,
-            "readAt": self.read_at.isoformat() if self.read_at else None,
+            "id": self.id, "userId": self.user_id, "targetType": self.target_type,
+            "targetId": self.target_id, "reaction": self.reaction,
+            "createdAt": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class Follow(Base):
+    """User follow relationship."""
+    __tablename__ = "follows"
+    id = Column(Integer, primary_key=True, index=True)
+    follower_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    following_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    is_close_friend = Column(Boolean, default=False)
+    notify = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (Index("idx_follow_unique", "follower_id", "following_id", unique=True),)
+
+    def to_dict(self):
+        return {
+            "id": self.id, "followerId": self.follower_id, "followingId": self.following_id,
+            "isCloseFriend": self.is_close_friend, "notify": self.notify,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }
