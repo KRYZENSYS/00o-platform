@@ -1,326 +1,316 @@
-// Centralized API client for 00o.uz
-import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
+/** API client - axios wrapper */
+import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
+import Cookies from 'js-cookie';
+import toast from 'react-hot-toast';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
 class ApiClient {
   private client: AxiosInstance;
-  private accessToken: string | null = null;
+  private isRefreshing = false;
+  private refreshSubscribers: ((token: string) => void)[] = [];
 
   constructor() {
     this.client = axios.create({
       baseURL: API_URL,
-      timeout: 30000,
+      timeout: 60000,
       headers: { 'Content-Type': 'application/json' },
     });
 
-    // Request interceptor - add token
+    // Request interceptor
     this.client.interceptors.request.use((config: InternalAxiosRequestConfig) => {
-      if (this.accessToken) {
-        config.headers.Authorization = `Bearer ${this.accessToken}`;
-      }
-      if (typeof window !== 'undefined') {
-        const lang = localStorage.getItem('locale') || 'uz';
-        config.headers['Accept-Language'] = lang;
+      const token = this.getToken();
+      if (token && config.headers) {
+        config.headers.Authorization = `Bearer ${token}`;
       }
       return config;
     });
 
-    // Response interceptor - handle errors
+    // Response interceptor
     this.client.interceptors.response.use(
-      (r) => r,
+      (response) => response,
       async (error: AxiosError) => {
-        if (error.response?.status === 401 && typeof window !== 'undefined') {
-          // Try refresh token
-          const refresh = localStorage.getItem('refreshToken');
-          if (refresh && !error.config?.url?.includes('/auth/')) {
-            try {
-              const res = await axios.post(`${API_URL}/auth/refresh`, { refresh_token: refresh });
-              const data = res.data?.data || res.data;
-              if (data.access_token) {
-                this.setToken(data.access_token);
-                localStorage.setItem('refreshToken', data.refresh_token);
-                if (error.config) {
-                  error.config.headers.Authorization = `Bearer ${data.access_token}`;
-                  return this.client.request(error.config);
-                }
-              }
-            } catch {
-              this.clear();
-              if (typeof window !== 'undefined' && !window.location.pathname.includes('/auth')) {
-                window.location.href = '/auth/login';
-              }
-            }
-          } else {
-            this.clear();
-            if (typeof window !== 'undefined' && !window.location.pathname.includes('/auth')) {
-              window.location.href = '/auth/login';
-            }
+        const original = error.config as any;
+        if (error.response?.status === 401 && !original._retry) {
+          if (this.isRefreshing) {
+            return new Promise((resolve) => {
+              this.refreshSubscribers.push((token: string) => {
+                original.headers.Authorization = `Bearer ${token}`;
+                resolve(this.client(original));
+              });
+            });
           }
+          original._retry = true;
+          this.isRefreshing = true;
+          try {
+            const refreshToken = Cookies.get('refresh_token');
+            if (refreshToken) {
+              const res = await this.client.post('/auth/refresh', { refreshToken });
+              const newToken = res.data.data.token;
+              this.setToken(newToken);
+              this.refreshSubscribers.forEach((cb) => cb(newToken));
+              this.refreshSubscribers = [];
+              original.headers.Authorization = `Bearer ${newToken}`;
+              return this.client(original);
+            }
+          } catch (e) {
+            this.clearTokens();
+            if (typeof window !== 'undefined') window.location.href = '/auth/login';
+          } finally {
+            this.isRefreshing = false;
+          }
+        }
+        const message = (error.response?.data as any)?.message || error.message || 'Xatolik';
+        if (error.response?.status !== 401 && error.response?.status !== 404) {
+          toast.error(message);
         }
         return Promise.reject(error);
       }
     );
-
-    // Load token from storage
-    if (typeof window !== 'undefined') {
-      this.accessToken = localStorage.getItem('accessToken');
-    }
   }
 
-  setToken(token: string) {
-    this.accessToken = token;
-    if (typeof window !== 'undefined') localStorage.setItem('accessToken', token);
+  private getToken(): string | null {
+    if (typeof window === 'undefined') return null;
+    return Cookies.get('access_token') || localStorage.getItem('token');
   }
 
-  clear() {
-    this.accessToken = null;
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
-    }
+  private setToken(token: string): void {
+    if (typeof window === 'undefined') return;
+    Cookies.set('access_token', token, { expires: 7 });
+    localStorage.setItem('token', token);
   }
 
-  // Generic helpers
-  get<T = any>(url: string, params?: any) {
-    return this.client.get<T>(url, { params }).then((r) => r.data);
-  }
-  post<T = any>(url: string, data?: any) {
-    return this.client.post<T>(url, data).then((r) => r.data);
-  }
-  put<T = any>(url: string, data?: any) {
-    return this.client.put<T>(url, data).then((r) => r.data);
-  }
-  patch<T = any>(url: string, data?: any) {
-    return this.client.patch<T>(url, data).then((r) => r.data);
-  }
-  delete<T = any>(url: string) {
-    return this.client.delete<T>(url).then((r) => r.data);
+  private clearTokens(): void {
+    if (typeof window === 'undefined') return;
+    Cookies.remove('access_token');
+    Cookies.remove('refresh_token');
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
   }
 
-  // ===== AUTH =====
+  // ===== Auth =====
   auth = {
-    login: (email: string, password: string) => this.post('/auth/login', { email, password }),
-    register: (data: any) => this.post('/auth/register', data),
-    logout: () => this.post('/auth/logout'),
-    me: () => this.get('/auth/me'),
-    refresh: (refresh_token: string) => this.post('/auth/refresh', { refresh_token }),
-    forgotPassword: (email: string) => this.post('/auth/forgot-password', { email }),
-    resetPassword: (token: string, password: string) => this.post('/auth/reset-password', { token, password }),
-    verifyEmail: (token: string) => this.post('/auth/verify-email', { token }),
-    telegram: (initData: string) => this.post('/auth/telegram', { initData }),
-    enable2FA: () => this.post('/auth/2fa/enable'),
-    verify2FA: (code: string) => this.post('/auth/2fa/verify', { code }),
+    register: (data: any) => this.client.post('/auth/register', data).then(r => r.data),
+    login: (email: string, password: string) => this.client.post('/auth/login', { email, password }).then(r => {
+      this.setToken(r.data.data.token);
+      localStorage.setItem('user', JSON.stringify(r.data.data.user));
+      return r.data;
+    }),
+    loginWithTelegram: (initData: string) => this.client.post('/auth/telegram', { initData }).then(r => {
+      this.setToken(r.data.data.token);
+      localStorage.setItem('user', JSON.stringify(r.data.data.user));
+      return r.data;
+    }),
+    logout: () => this.client.post('/auth/logout').catch(() => {}).finally(() => this.clearTokens()),
+    me: () => this.client.get('/auth/me').then(r => r.data),
+    refresh: (refreshToken: string) => this.client.post('/auth/refresh', { refreshToken }).then(r => r.data),
+    forgot: (email: string) => this.client.post('/auth/forgot', { email }).then(r => r.data),
+    reset: (data: any) => this.client.post('/auth/reset', data).then(r => r.data),
+    verify: (code: string) => this.client.post('/auth/verify', { code }).then(r => r.data),
   };
 
-  // ===== USERS =====
+  // ===== Users =====
   users = {
-    me: () => this.get('/users/me'),
-    update: (data: any) => this.patch('/users/me', data),
-    uploadAvatar: (file: File) => {
-      const fd = new FormData();
-      fd.append('file', file);
-      return this.client.post('/users/me/avatar', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data);
-    },
-    get: (id: string) => this.get(`/users/${id}`),
-    byUsername: (username: string) => this.get(`/users/by/${username}`),
-    search: (q: string) => this.get('/users/search', { q }),
-    follow: (id: string) => this.post(`/users/${id}/follow`),
-    unfollow: (id: string) => this.delete(`/users/${id}/follow`),
-    followers: (id: string) => this.get(`/users/${id}/followers`),
-    following: (id: string) => this.get(`/users/${id}/following`),
-    stats: (id: string) => this.get(`/users/${id}/stats`),
+    me: () => this.client.get('/users/me').then(r => r.data),
+    update: (data: any) => this.client.patch('/users/me', data).then(r => r.data),
+    changePassword: (data: any) => this.client.post('/users/me/password', data).then(r => r.data),
+    getByUsername: (username: string) => this.client.get(`/users/${username}`).then(r => r.data),
+    get: (id: string) => this.client.get(`/users/id/${id}`).then(r => r.data),
+    list: (params: any = {}) => this.client.get('/users', { params }).then(r => r.data),
+    follow: (id: string) => this.client.post(`/users/${id}/follow`).then(r => r.data),
+    unfollow: (id: string) => this.client.delete(`/users/${id}/follow`).then(r => r.data),
+    followers: (id: string, params: any = {}) => this.client.get(`/users/${id}/followers`, { params }).then(r => r.data),
+    following: (id: string, params: any = {}) => this.client.get(`/users/${id}/following`, { params }).then(r => r.data),
+    search: (q: string) => this.client.get('/users/search', { params: { q } }).then(r => r.data),
+    suggestions: () => this.client.get('/users/suggestions').then(r => r.data),
+    notifications: (params: any = {}) => this.client.get('/users/me/notifications', { params }).then(r => r.data),
   };
 
   // ===== AI =====
   ai = {
-    chat: (messages: any[], feature = 'chat', model = 'llama-3.3-70b') =>
-      this.post('/ai/chat', { messages, feature, model }),
-    stream: (messages: any[], feature = 'chat') =>
-      this.post('/ai/stream', { messages, feature }),
+    chat: (messages: any[], type = 'chat', model = 'llama-3.3-70b-versatile') =>
+      this.client.post('/ai/chat', { messages, type, model }).then(r => r.data),
+    stream: (messages: any[], model: string) => this.client.post('/ai/stream', { messages, model }, { responseType: 'stream' }),
+    conversations: (params: any = {}) => this.client.get('/ai/conversations', { params }).then(r => r.data),
+    conversation: (id: string) => this.client.get(`/ai/conversations/${id}`).then(r => r.data),
+    deleteConversation: (id: string) => this.client.delete(`/ai/conversations/${id}`).then(r => r.data),
+    usage: () => this.client.get('/ai/usage').then(r => r.data),
     tools: {
-      startupIdea: (data: any) => this.post('/ai/tools/startup-idea', data),
-      businessPlan: (data: any) => this.post('/ai/tools/business-plan', data),
-      code: (data: any) => this.post('/ai/tools/code', data),
-      codeReview: (code: string, lang = 'typescript') => this.post('/ai/tools/code-review', { code, language: lang }),
-      resume: (data: any) => this.post('/ai/tools/resume', data),
-      coverLetter: (data: any) => this.post('/ai/tools/cover-letter', data),
-      translate: (text: string, from: string, to: string) => this.post('/ai/tools/translate', { text, from, to }),
-      blog: (data: any) => this.post('/ai/tools/blog', data),
-      social: (data: any) => this.post('/ai/tools/social', data),
-      email: (data: any) => this.post('/ai/tools/email', data),
-      summarize: (text: string) => this.post('/ai/tools/summarize', { text }),
-      pitch: (data: any) => this.post('/ai/tools/pitch', data),
-      marketResearch: (data: any) => this.post('/ai/tools/market-research', data),
-      financialModel: (data: any) => this.post('/ai/tools/financial-model', data),
-      legal: (data: any) => this.post('/ai/tools/legal', data),
-      brandName: (data: any) => this.post('/ai/tools/brand-name', data),
-      logo: (data: any) => this.post('/ai/tools/logo', data),
-      analyzeImage: (imageUrl: string, prompt: string) => this.post('/ai/tools/analyze-image', { imageUrl, prompt }),
+      startupIdea: (data: any) => this.client.post('/ai/tools/startup-idea', data).then(r => r.data),
+      businessPlan: (data: any) => this.client.post('/ai/tools/business-plan', data).then(r => r.data),
+      code: (data: any) => this.client.post('/ai/tools/code', data).then(r => r.data),
+      codeReview: (data: any) => this.client.post('/ai/tools/code-review', data).then(r => r.data),
+      resume: (data: any) => this.client.post('/ai/tools/resume', data).then(r => r.data),
+      coverLetter: (data: any) => this.client.post('/ai/tools/cover-letter', data).then(r => r.data),
+      translate: (text: string, from = 'auto', to = 'en') => this.client.post('/ai/tools/translate', { text, from, to }).then(r => r.data),
+      blog: (data: any) => this.client.post('/ai/tools/blog', data).then(r => r.data),
+      social: (data: any) => this.client.post('/ai/tools/social', data).then(r => r.data),
+      email: (data: any) => this.client.post('/ai/tools/email', data).then(r => r.data),
+      summarize: (data: any) => this.client.post('/ai/tools/summarize', data).then(r => r.data),
+      pitch: (data: any) => this.client.post('/ai/tools/pitch', data).then(r => r.data),
+      marketResearch: (data: any) => this.client.post('/ai/tools/market-research', data).then(r => r.data),
+      financialModel: (data: any) => this.client.post('/ai/tools/financial-model', data).then(r => r.data),
+      legal: (data: any) => this.client.post('/ai/tools/legal', data).then(r => r.data),
+      brandName: (data: any) => this.client.post('/ai/tools/brand-name', data).then(r => r.data),
+      logo: (data: any) => this.client.post('/ai/tools/logo', data).then(r => r.data),
     },
-    history: (params?: any) => this.get('/ai/history', params),
-    models: () => this.get('/ai/models'),
-    usage: () => this.get('/ai/usage'),
   };
 
-  // ===== STARTUPS =====
+  // ===== Startups =====
   startups = {
-    list: (params?: any) => this.get('/startups', params),
-    get: (id: string) => this.get(`/startups/${id}`),
-    bySlug: (slug: string) => this.get(`/startups/slug/${slug}`),
-    create: (data: any) => this.post('/startups', data),
-    update: (id: string, data: any) => this.patch(`/startups/${id}`, data),
-    delete: (id: string) => this.delete(`/startups/${id}`),
-    my: () => this.get('/startups/me/all'),
-    fundings: (id: string) => this.get(`/startups/${id}/fundings`),
-    createFunding: (id: string, data: any) => this.post(`/startups/${id}/fundings`, data),
-    team: (id: string) => this.get(`/startups/${id}/team`),
-    addTeam: (id: string, data: any) => this.post(`/startups/${id}/team`, data),
-    metrics: (id: string) => this.get(`/startups/${id}/metrics`),
-    search: (q: string) => this.get('/startups/search', { q }),
+    list: (params: any = {}) => this.client.get('/startups', { params }).then(r => r.data),
+    featured: () => this.client.get('/startups/featured').then(r => r.data),
+    trending: () => this.client.get('/startups/trending').then(r => r.data),
+    get: (slug: string) => this.client.get(`/startups/${slug}`).then(r => r.data),
+    create: (data: any) => this.client.post('/startups', data).then(r => r.data),
+    update: (id: number, data: any) => this.client.patch(`/startups/${id}`, data).then(r => r.data),
+    delete: (id: number) => this.client.delete(`/startups/${id}`).then(r => r.data),
+    like: (id: number) => this.client.post(`/startups/${id}/like`).then(r => r.data),
+    unlike: (id: number) => this.client.delete(`/startups/${id}/like`).then(r => r.data),
+    follow: (id: number) => this.client.post(`/startups/${id}/follow`).then(r => r.data),
+    team: (id: number) => this.client.get(`/startups/${id}/team`).then(r => r.data),
+    updates: (id: number) => this.client.get(`/startups/${id}/updates`).then(r => r.data),
+    addUpdate: (id: number, data: any) => this.client.post(`/startups/${id}/updates`, data).then(r => r.data),
   };
 
-  // ===== MARKETPLACE =====
+  // ===== Marketplace =====
   marketplace = {
-    services: (params?: any) => this.get('/marketplace/services', params),
-    service: (id: string) => this.get(`/marketplace/services/${id}`),
-    createService: (data: any) => this.post('/marketplace/services', data),
-    updateService: (id: string, data: any) => this.patch(`/marketplace/services/${id}`, data),
-    deleteService: (id: string) => this.delete(`/marketplace/services/${id}`),
-    categories: () => this.get('/marketplace/categories'),
-    myServices: () => this.get('/marketplace/services/me'),
-    orders: (params?: any) => this.get('/marketplace/orders', params),
-    order: (id: string) => this.get(`/marketplace/orders/${id}`),
-    createOrder: (data: any) => this.post('/marketplace/orders', data),
-    updateOrder: (id: string, data: any) => this.patch(`/marketplace/orders/${id}`, data),
-    reviews: (serviceId: string) => this.get(`/marketplace/services/${serviceId}/reviews`),
-    createReview: (serviceId: string, data: any) => this.post(`/marketplace/services/${serviceId}/reviews`, data),
+    categories: () => this.client.get('/marketplace/categories').then(r => r.data),
+    services: (params: any = {}) => this.client.get('/marketplace/services', { params }).then(r => r.data),
+    featured: () => this.client.get('/marketplace/services/featured').then(r => r.data),
+    service: (id: string) => this.client.get(`/marketplace/services/${id}`).then(r => r.data),
+    create: (data: any) => this.client.post('/marketplace/services', data).then(r => r.data),
+    update: (id: number, data: any) => this.client.patch(`/marketplace/services/${id}`, data).then(r => r.data),
+    delete: (id: number) => this.client.delete(`/marketplace/services/${id}`).then(r => r.data),
+    reviews: (id: number) => this.client.get(`/marketplace/services/${id}/reviews`).then(r => r.data),
+    addReview: (id: number, data: any) => this.client.post(`/marketplace/services/${id}/reviews`, data).then(r => r.data),
+    orders: (params: any = {}) => this.client.get('/marketplace/orders', { params }).then(r => r.data),
+    order: (id: number) => this.client.get(`/marketplace/orders/${id}`).then(r => r.data),
+    placeOrder: (data: any) => this.client.post('/marketplace/orders', data).then(r => r.data),
+    acceptOrder: (id: number) => this.client.post(`/marketplace/orders/${id}/accept`).then(r => r.data),
+    deliverOrder: (id: number, data: any) => this.client.post(`/marketplace/orders/${id}/deliver`, data).then(r => r.data),
+    completeOrder: (id: number) => this.client.post(`/marketplace/orders/${id}/complete`).then(r => r.data),
+    cancelOrder: (id: number) => this.client.post(`/marketplace/orders/${id}/cancel`).then(r => r.data),
   };
 
-  // ===== JOBS =====
+  // ===== Jobs =====
   jobs = {
-    list: (params?: any) => this.get('/jobs', params),
-    get: (id: string) => this.get(`/jobs/${id}`),
-    create: (data: any) => this.post('/jobs', data),
-    update: (id: string, data: any) => this.patch(`/jobs/${id}`, data),
-    delete: (id: string) => this.delete(`/jobs/${id}`),
-    my: () => this.get('/jobs/me'),
-    apply: (id: string, data: any) => this.post(`/jobs/${id}/apply`, data),
-    applications: (jobId: string) => this.get(`/jobs/${jobId}/applications`),
-    myApplications: () => this.get('/jobs/applications/me'),
-    save: (id: string) => this.post(`/jobs/${id}/save`),
-    saved: () => this.get('/jobs/saved'),
+    list: (params: any = {}) => this.client.get('/jobs', { params }).then(r => r.data),
+    my: () => this.client.get('/jobs/me').then(r => r.data),
+    myApplications: () => this.client.get('/jobs/applications/me').then(r => r.data),
+    saved: () => this.client.get('/jobs/saved').then(r => r.data),
+    get: (id: number) => this.client.get(`/jobs/${id}`).then(r => r.data),
+    create: (data: any) => this.client.post('/jobs', data).then(r => r.data),
+    update: (id: number, data: any) => this.client.patch(`/jobs/${id}`, data).then(r => r.data),
+    delete: (id: number) => this.client.delete(`/jobs/${id}`).then(r => r.data),
+    apply: (id: number, data: any) => this.client.post(`/jobs/${id}/apply`, data).then(r => r.data),
+    save: (id: number) => this.client.post(`/jobs/${id}/save`).then(r => r.data),
+    applications: (id: number) => this.client.get(`/jobs/${id}/applications`).then(r => r.data),
   };
 
-  // ===== INVESTORS =====
+  // ===== Investors =====
   investors = {
-    list: (params?: any) => this.get('/investors', params),
-    get: (id: string) => this.get(`/investors/${id}`),
-    register: (data: any) => this.post('/investors', data),
-    update: (id: string, data: any) => this.patch(`/investors/${id}`, data),
-    pitch: (id: string, data: any) => this.post(`/investors/${id}/pitch`, data),
-    myPitches: () => this.get('/investors/pitches/me'),
-    portfolio: (id: string) => this.get(`/investors/${id}/portfolio`),
+    list: (params: any = {}) => this.client.get('/investors', { params }).then(r => r.data),
+    get: (id: number) => this.client.get(`/investors/${id}`).then(r => r.data),
+    register: (data: any) => this.client.post('/investors', data).then(r => r.data),
+    update: (id: number, data: any) => this.client.patch(`/investors/${id}`, data).then(r => r.data),
+    portfolio: (id: number) => this.client.get(`/investors/${id}/portfolio`).then(r => r.data),
+    pitch: (id: number, data: any) => this.client.post(`/investors/${id}/pitch`, data).then(r => r.data),
+    myPitches: () => this.client.get('/investors/pitches/me').then(r => r.data),
   };
 
-  // ===== CHAT =====
+  // ===== Chats =====
   chats = {
-    list: () => this.get('/chats'),
-    get: (id: string) => this.get(`/chats/${id}`),
-    create: (data: any) => this.post('/chats', data),
-    messages: (id: string, params?: any) => this.get(`/chats/${id}/messages`, params),
-    send: (id: string, data: any) => this.post(`/chats/${id}/messages`, data),
-    markRead: (id: string) => this.post(`/chats/${id}/read`),
-    typing: (id: string) => this.post(`/chats/${id}/typing`),
+    list: () => this.client.get('/chats').then(r => r.data),
+    create: (data: any) => this.client.post('/chats', data).then(r => r.data),
+    get: (id: number) => this.client.get(`/chats/${id}`).then(r => r.data),
+    messages: (id: number, params: any = {}) => this.client.get(`/chats/${id}/messages`, { params }).then(r => r.data),
+    sendMessage: (id: number, data: any) => this.client.post(`/chats/${id}/messages`, data).then(r => r.data),
+    markRead: (id: number) => this.client.post(`/chats/${id}/read`).then(r => r.data),
+    typing: (id: number) => this.client.post(`/chats/${id}/typing`).then(r => r.data),
   };
 
-  // ===== FEED =====
+  // ===== Feed =====
   feed = {
-    list: (params?: any) => this.get('/feed', params),
-    create: (data: any) => this.post('/feed', data),
-    get: (id: string) => this.get(`/feed/${id}`),
-    delete: (id: string) => this.delete(`/feed/${id}`),
-    like: (id: string) => this.post(`/feed/${id}/like`),
-    unlike: (id: string) => this.delete(`/feed/${id}/like`),
-    comments: (id: string) => this.get(`/feed/${id}/comments`),
-    addComment: (id: string, text: string) => this.post(`/feed/${id}/comments`, { text }),
-    share: (id: string) => this.post(`/feed/${id}/share`),
-    trending: () => this.get('/feed/trending'),
+    list: (params: any = {}) => this.client.get('/feed', { params }).then(r => r.data),
+    trending: () => this.client.get('/feed/trending').then(r => r.data),
+    get: (id: number) => this.client.get(`/feed/${id}`).then(r => r.data),
+    create: (data: any) => this.client.post('/feed', data).then(r => r.data),
+    delete: (id: number) => this.client.delete(`/feed/${id}`).then(r => r.data),
+    like: (id: number) => this.client.post(`/feed/${id}/like`).then(r => r.data),
+    unlike: (id: number) => this.client.delete(`/feed/${id}/like`).then(r => r.data),
+    share: (id: number) => this.client.post(`/feed/${id}/share`).then(r => r.data),
+    comments: (id: number) => this.client.get(`/feed/${id}/comments`).then(r => r.data),
+    addComment: (id: number, data: any) => this.client.post(`/feed/${id}/comments`, data).then(r => r.data),
   };
 
-  // ===== PAYMENTS =====
+  // ===== Payments =====
   payments = {
-    createIntent: (data: any) => this.post('/payments/intent', data),
-    stripeWebhook: (data: any) => this.post('/payments/stripe/webhook', data),
-    payme: (data: any) => this.post('/payments/payme', data),
-    click: (data: any) => this.post('/payments/click', data),
-    history: () => this.get('/payments/history'),
+    intent: (data: any) => this.client.post('/payments/intent', data).then(r => r.data),
+    history: () => this.client.get('/payments/history').then(r => r.data),
+    plans: () => this.client.get('/payments/plans').then(r => r.data),
+    currentSub: () => this.client.get('/payments/current').then(r => r.data),
+    subscribe: (data: any) => this.client.post('/payments/subscribe', data).then(r => r.data),
+    cancel: () => this.client.post('/payments/cancel').then(r => r.data),
+    invoices: () => this.client.get('/payments/invoices').then(r => r.data),
+    balance: () => this.client.get('/payments/balance').then(r => r.data),
+    buyTokens: (data: any) => this.client.post('/payments/buy', data).then(r => r.data),
+    spendTokens: (data: any) => this.client.post('/payments/spend', data).then(r => r.data),
+    tokenHistory: () => this.client.get('/payments/history?type=tokens').then(r => r.data),
+    referral: {
+      code: () => this.client.get('/payments/code').then(r => r.data),
+      stats: () => this.client.get('/payments/stats').then(r => r.data),
+      process: (code: string) => this.client.post('/payments/process', { code }).then(r => r.data),
+      list: () => this.client.get('/payments/list').then(r => r.data),
+    },
   };
 
-  // ===== SUBSCRIPTIONS =====
-  subscriptions = {
-    plans: () => this.get('/subscriptions/plans'),
-    current: () => this.get('/subscriptions/current'),
-    subscribe: (planId: string) => this.post('/subscriptions/subscribe', { planId }),
-    cancel: () => this.post('/subscriptions/cancel'),
-    invoices: () => this.get('/subscriptions/invoices'),
-  };
-
-  // ===== TOKENS =====
-  tokens = {
-    balance: () => this.get('/tokens/balance'),
-    buy: (amount: number) => this.post('/tokens/buy', { amount }),
-    spend: (amount: number, reason: string) => this.post('/tokens/spend', { amount, reason }),
-    history: () => this.get('/tokens/history'),
-  };
-
-  // ===== REFERRALS =====
-  referrals = {
-    code: () => this.get('/referrals/code'),
-    stats: () => this.get('/referrals/stats'),
-    process: (code: string) => this.post('/referrals/process', { code }),
-    list: () => this.get('/referrals/list'),
-  };
-
-  // ===== NOTIFICATIONS =====
+  // ===== Notifications =====
   notifications = {
-    list: (params?: any) => this.get('/notifications', params),
-    markRead: (id: string) => this.post(`/notifications/${id}/read`),
-    markAllRead: () => this.post('/notifications/read-all'),
-    unread: () => this.get('/notifications/unread/count'),
+    list: (params: any = {}) => this.client.get('/notifications', { params }).then(r => r.data),
+    read: (id: number) => this.client.post(`/notifications/${id}/read`).then(r => r.data),
+    readAll: () => this.client.post('/notifications/read-all').then(r => r.data),
+    unreadCount: () => this.client.get('/notifications/unread/count').then(r => r.data),
   };
 
-  // ===== ANALYTICS =====
-  analytics = {
-    dashboard: () => this.get('/analytics/dashboard'),
-    user: (period = '30d') => this.get('/analytics/user', { period }),
-    platform: () => this.get('/analytics/platform'),
-  };
-
-  // ===== ADMIN =====
-  admin = {
-    users: (params?: any) => this.get('/admin/users', params),
-    ban: (id: string) => this.post(`/admin/users/${id}/ban`),
-    unban: (id: string) => this.post(`/admin/users/${id}/unban`),
-    stats: () => this.get('/admin/stats'),
-    reports: () => this.get('/admin/reports'),
-    resolveReport: (id: string, action: string) => this.post(`/admin/reports/${id}/resolve`, { action }),
-  };
-
-  // ===== UPLOADS =====
+  // ===== Uploads =====
   uploads = {
-    file: (file: File) => {
-      const fd = new FormData();
-      fd.append('file', file);
-      return this.client.post('/uploads/file', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data);
+    file: (file: File, onProgress?: (p: number) => void) => {
+      const form = new FormData();
+      form.append('file', file);
+      return this.client.post('/uploads/file', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (e) => onProgress && e.total && onProgress(Math.round((e.loaded * 100) / e.total)),
+      }).then(r => r.data);
     },
-    image: (file: File) => {
-      const fd = new FormData();
-      fd.append('file', file);
-      return this.client.post('/uploads/image', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data);
+    image: (file: File, onProgress?: (p: number) => void) => {
+      const form = new FormData();
+      form.append('file', file);
+      return this.client.post('/uploads/image', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (e) => onProgress && e.total && onProgress(Math.round((e.loaded * 100) / e.total)),
+      }).then(r => r.data);
     },
+  };
+
+  // ===== Analytics =====
+  analytics = {
+    dashboard: () => this.client.get('/analytics/dashboard').then(r => r.data),
+    user: (period = '30d') => this.client.get('/analytics/user', { params: { period } }).then(r => r.data),
+    platform: () => this.client.get('/analytics/platform').then(r => r.data),
+  };
+
+  // ===== Admin =====
+  admin = {
+    stats: () => this.client.get('/admin/stats').then(r => r.data),
+    listUsers: (params: any = {}) => this.client.get('/admin/users', { params }).then(r => r.data),
+    banUser: (id: string) => this.client.post(`/admin/users/${id}/ban`).then(r => r.data),
+    unbanUser: (id: string) => this.client.post(`/admin/users/${id}/unban`).then(r => r.data),
+    reports: () => this.client.get('/admin/reports').then(r => r.data),
+    resolveReport: (id: number, data: any) => this.client.post(`/admin/reports/${id}/resolve`, data).then(r => r.data),
   };
 }
 
-export const api = new ApiClient();
+const api = new ApiClient();
 export default api;
+export { api };
