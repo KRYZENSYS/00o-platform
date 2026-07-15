@@ -1,0 +1,13 @@
+# Code Owners
+# Har bir fayl/yo'nalish uchun javobgar shaxslar
+
+/apps/web/         @KRYZENSYS
+/apps/api/         @KRYZENSYS
+/apps/bot/         @KRYZENSYS
+/packages/         @KRYZENSYS
+/infra/            @KRYZENSYS
+/.github/          @KRYZENSYS
+/docs/             @KRYZENSYS
+*.md               @KRYZENSYS
+*.yml              @KRYZENSYS
+*.yaml             @KRYZENSYS
