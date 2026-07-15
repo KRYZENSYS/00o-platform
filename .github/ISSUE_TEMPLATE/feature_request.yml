@@ -1,0 +1,41 @@
+name: ✨ Feature Request
+description: Yangi funksiya taklifi
+title: "[FEAT]: "
+labels: ["enhancement", "needs-review"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        00o.uz uchun yangi funksiya taklif qiling!
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Qanday muammoni hal qiladi?
+      description: Bu funksiya qanday muammoni hal qiladi?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Yechim tavsifi
+      description: Sizningcha qanday amalga oshirilishi kerak?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativalar
+      description: Boshqa ko'rilgan yechimlar
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Qo'shimcha ma'lumot
+      description: Skrinshotlar, havolalar
+    validations:
+      required: false
