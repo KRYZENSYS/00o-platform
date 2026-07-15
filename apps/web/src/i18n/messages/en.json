@@ -1,0 +1,91 @@
+{
+  "common": {
+    "appName": "00o.uz",
+    "tagline": "Uzbek Platform",
+    "loading": "Loading...",
+    "error": "An error occurred",
+    "retry": "Retry",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "create": "Create",
+    "search": "Search",
+    "next": "Next",
+    "previous": "Previous",
+    "yes": "Yes",
+    "no": "No",
+    "all": "All",
+    "none": "None"
+  },
+  "nav": {
+    "home": "Home",
+    "feed": "Feed",
+    "todos": "Tasks",
+    "notes": "Notes",
+    "habits": "Habits",
+    "finance": "Finance",
+    "health": "Health",
+    "chat": "Messages",
+    "profile": "Profile",
+    "settings": "Settings",
+    "premium": "Premium",
+    "admin": "Admin"
+  },
+  "auth": {
+    "login": "Sign in",
+    "register": "Sign up",
+    "logout": "Sign out",
+    "email": "Email",
+    "phone": "Phone",
+    "username": "Username",
+    "password": "Password",
+    "forgotPassword": "Forgot password?",
+    "noAccount": "Don't have an account?",
+    "hasAccount": "Already have an account?",
+    "welcomeBack": "Welcome back!",
+    "welcomeTitle": "Welcome",
+    "createAccount": "Create account"
+  },
+  "feed": {
+    "title": "Feed",
+    "createPost": "Write a post...",
+    "publish": "Publish",
+    "like": "Like",
+    "comment": "Comment",
+    "share": "Share",
+    "comments": "Comments",
+    "empty": "No posts yet. Be the first!"
+  },
+  "todos": {
+    "title": "Tasks",
+    "new": "New task",
+    "placeholder": "Add a new task...",
+    "empty": "No tasks. Add a new one!",
+    "stats": "Statistics",
+    "completed": "Completed",
+    "pending": "Pending",
+    "overdue": "Overdue",
+    "priority": {
+      "LOW": "Low",
+      "MEDIUM": "Medium",
+      "HIGH": "High",
+      "URGENT": "Urgent"
+    }
+  },
+  "premium": {
+    "title": "Go Premium",
+    "subtitle": "Use all features",
+    "monthly": "Monthly",
+    "yearly": "Yearly",
+    "save": "Save {percent}%",
+    "subscribe": "Subscribe",
+    "features": {
+      "unlimited": "Unlimited tasks",
+      "ai": "AI assistant",
+      "analytics": "Advanced analytics",
+      "support": "24/7 support",
+      "export": "Data export"
+    }
+  }
+}
