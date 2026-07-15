@@ -1,0 +1,54 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo lint
+      - run: pnpm turbo typecheck
+      - run: pnpm turbo test
+
+  build:
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo build
+      - name: Build & push Docker images
+        run: |
+          echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+          docker build -f docker/Dockerfile.api -t kryzensys/00o-api:latest .
+          docker build -f docker/Dockerfile.web -t kryzensys/00o-web:latest .
+          docker build -f docker/Dockerfile.bot -t kryzensys/00o-bot:latest .
+          docker push kryzensys/00o-api:latest
+          docker push kryzensys/00o-web:latest
+          docker push kryzensys/00o-bot:latest
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Deploy to production
+        run: |
+          echo "🚀 Deploying to production..."
+          # SSH into server and pull latest
+          ssh -o StrictHostKeyChecking=no deploy@${{ secrets.SERVER_HOST }} "cd /app && git pull && docker-compose pull && docker-compose up -d"
