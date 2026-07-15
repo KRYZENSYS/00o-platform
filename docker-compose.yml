@@ -1,103 +1,145 @@
 version: '3.9'
 
 services:
+  # Database
   postgres:
     image: postgres:16-alpine
     container_name: 00o-postgres
-    restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: ooouzb
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-ooouz}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./apps/backend/prisma/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    networks:
+      - 00o-network
 
+  # Cache
   redis:
     image: redis:7-alpine
     container_name: 00o-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
+    command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    networks:
+      - 00o-network
 
-  backend:
+  # Backend API
+  api:
     build:
       context: ./apps/backend
       dockerfile: Dockerfile
-    container_name: 00o-backend
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
+    container_name: 00o-api
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ooouzb
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ooouz}
       REDIS_URL: redis://redis:6379/0
-      APP_ENV: production
+      JWT_SECRET: ${JWT_SECRET:-change-me-super-secret-jwt-key-2026}
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRE_MINUTES: 10080
       GROQ_API_KEY: ${GROQ_API_KEY}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
-      JWT_SECRET: ${JWT_SECRET}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      PAYME_SECRET_KEY: ${PAYME_SECRET_KEY}
+      CLICK_SECRET_KEY: ${CLICK_SECRET_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,https://00o.uz}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - uploads_data:/app/uploads
+    ports:
+      - "${API_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - ./apps/backend:/app
-    command: gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000
-
-  telegram-bot:
-    build:
-      context: ./apps/backend
-      dockerfile: Dockerfile
-    container_name: 00o-telegram
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     restart: unless-stopped
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ooouzb
-      BACKEND_URL: http://backend:8000
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
-    depends_on:
-      - backend
-    command: python -m telegram_bot.bot
+    networks:
+      - 00o-network
 
+  # Telegram bot
+  bot:
+    build:
+      context: ./apps/bot
+      dockerfile: Dockerfile
+    container_name: 00o-bot
+    environment:
+      BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      WEBAPP_URL: ${WEBAPP_URL:-https://00o.uz}
+      API_URL: http://api:8000
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - api
+      - redis
+    restart: unless-stopped
+    networks:
+      - 00o-network
+
+  # Frontend (Next.js)
   web:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
     container_name: 00o-web
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
+      NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:8000}
+      NEXT_PUBLIC_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
     depends_on:
-      - backend
+      - api
+    restart: unless-stopped
+    networks:
+      - 00o-network
 
+  # Nginx reverse proxy
   nginx:
     image: nginx:alpine
     container_name: 00o-nginx
-    restart: unless-stopped
+    volumes:
+      - ./infra/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/certs:/etc/nginx/certs:ro
     ports:
       - "80:80"
       - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
     depends_on:
-      - backend
       - web
+      - api
+    restart: unless-stopped
+    networks:
+      - 00o-network
 
 volumes:
   postgres_data:
   redis_data:
+  uploads_data:
+
+networks:
+  00o-network:
+    driver: bridge
