@@ -1,0 +1,25 @@
+{
+  "name": "@00o/bot",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@00o/utils": "workspace:*",
+    "telegraf": "^4.16.3",
+    "ioredis": "^5.4.1",
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "dayjs": "^1.11.13",
+    "nanoid": "^5.0.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "typescript": "^5.6.3",
+    "tsx": "^4.19.1"
+  }
+}
