@@ -1,0 +1,91 @@
+{
+  "common": {
+    "appName": "00o.uz",
+    "tagline": "Özbek Platformu",
+    "loading": "Yükleniyor...",
+    "error": "Bir hata oluştu",
+    "retry": "Tekrar dene",
+    "save": "Kaydet",
+    "cancel": "İptal",
+    "delete": "Sil",
+    "edit": "Düzenle",
+    "create": "Oluştur",
+    "search": "Ara",
+    "next": "İleri",
+    "previous": "Geri",
+    "yes": "Evet",
+    "no": "Hayır",
+    "all": "Tümü",
+    "none": "Hiçbiri"
+  },
+  "nav": {
+    "home": "Ana sayfa",
+    "feed": "Akış",
+    "todos": "Görevler",
+    "notes": "Notlar",
+    "habits": "Alışkanlıklar",
+    "finance": "Finans",
+    "health": "Sağlık",
+    "chat": "Mesajlar",
+    "profile": "Profil",
+    "settings": "Ayarlar",
+    "premium": "Premium",
+    "admin": "Yönetici"
+  },
+  "auth": {
+    "login": "Giriş yap",
+    "register": "Kayıt ol",
+    "logout": "Çıkış",
+    "email": "E-posta",
+    "phone": "Telefon",
+    "username": "Kullanıcı adı",
+    "password": "Şifre",
+    "forgotPassword": "Şifrenizi mi unuttunuz?",
+    "noAccount": "Hesabınız yok mu?",
+    "hasAccount": "Zaten hesabınız var mı?",
+    "welcomeBack": "Tekrar hoş geldiniz!",
+    "welcomeTitle": "Hoş geldiniz",
+    "createAccount": "Hesap oluştur"
+  },
+  "feed": {
+    "title": "Akış",
+    "createPost": "Bir gönderi yaz...",
+    "publish": "Yayınla",
+    "like": "Beğen",
+    "comment": "Yorum",
+    "share": "Paylaş",
+    "comments": "Yorumlar",
+    "empty": "Henüz gönderi yok. İlk siz olun!"
+  },
+  "todos": {
+    "title": "Görevler",
+    "new": "Yeni görev",
+    "placeholder": "Yeni görev ekle...",
+    "empty": "Görev yok. Yeni bir tane ekleyin!",
+    "stats": "İstatistikler",
+    "completed": "Tamamlandı",
+    "pending": "Bekliyor",
+    "overdue": "Gecikmiş",
+    "priority": {
+      "LOW": "Düşük",
+      "MEDIUM": "Orta",
+      "HIGH": "Yüksek",
+      "URGENT": "Acil"
+    }
+  },
+  "premium": {
+    "title": "Premium'a geç",
+    "subtitle": "Tüm özellikleri kullanın",
+    "monthly": "Aylık",
+    "yearly": "Yıllık",
+    "save": "%{percent} tasarruf",
+    "subscribe": "Abone ol",
+    "features": {
+      "unlimited": "Sınırsız görevler",
+      "ai": "AI asistanı",
+      "analytics": "Gelişmiş analitik",
+      "support": "7/24 destek",
+      "export": "Veri dışa aktarma"
+    }
+  }
+}
