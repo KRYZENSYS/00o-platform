@@ -1,342 +1,219 @@
-"""Authentication endpoints."""
-from datetime import datetime
+"""Auth endpoints: register, login, telegram, refresh, logout."""
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from pydantic import BaseModel, EmailStr, Field, field_validator
-from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel, EmailStr, Field
 
 from app.core.database import get_db
 from app.core.security import (
     hash_password, verify_password,
     create_access_token, create_refresh_token, decode_token,
-    verify_telegram_init_data, generate_2fa_secret, verify_2fa_code, get_2fa_uri,
-    generate_random_token,
+    generate_referral_code, verify_telegram_init_data,
 )
-from app.core.deps import get_current_user
+from app.core.config import settings
+from app.core.redis_client import get_redis
+from app.api.deps import get_current_user
 from app.models.user import User
-from app.models.subscription import Subscription
-from app.services.email import send_email
+from app.models.token import Referral
+from app.schemas.user import UserOut, TokenOut, RegisterIn, LoginIn
 
-router = APIRouter()
-
-
-# ===== Schemas =====
-class RegisterRequest(BaseModel):
-    email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
-    username: str = Field(min_length=3, max_length=32, pattern=r'^[a-zA-Z0-9_]+$')
-    firstName: str | None = None
-    lastName: str | None = None
-    referralCode: str | None = None
-
-    @field_validator('password')
-    @classmethod
-    def password_strength(cls, v: str) -> str:
-        if not any(c.isupper() for c in v):
-            raise ValueError('Password must contain uppercase letter')
-        if not any(c.isdigit() for c in v):
-            raise ValueError('Password must contain digit')
-        return v
+router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
-class LoginRequest(BaseModel):
-    email: str
-    password: str
-
-
-class TelegramAuthRequest(BaseModel):
-    initData: str
-
-
-class TokenResponse(BaseModel):
-    success: bool = True
-    data: dict
-
-
-class UserResponse(BaseModel):
-    id: str
-    username: str
-    email: str
-    firstName: str | None
-    lastName: str | None
-    avatar: str | None
-    role: str
-    verified: bool
-    premium: bool
-    tokens: int
-    xp: int
-    level: str
-
-
-# ===== Endpoints =====
-@router.post("/register", response_model=TokenResponse, status_code=201)
-async def register(data: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
-    """Register new user."""
+@router.post("/register", response_model=TokenOut, status_code=201)
+async def register(data: RegisterIn, db: AsyncSession = Depends(get_db)):
+    """Register with email & password."""
     # Check existing
-    existing = await db.execute(
+    result = await db.execute(
         select(User).where((User.email == data.email) | (User.username == data.username))
     )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Email or username already taken")
+    if result.scalar_one_or_none():
+        raise HTTPException(400, "Bu email yoki username band")
 
     # Create user
     user = User(
-        id=generate_random_token(16),
         email=data.email,
         username=data.username,
-        password_hash=hash_password(data.password),
-        first_name=data.firstName,
-        last_name=data.lastName,
-        role="user",
-        tokens=100,  # Welcome bonus
-        email_verification_token=generate_random_token(32),
+        firstName=data.first_name,
+        lastName=data.last_name or "",
+        password=hash_password(data.password),
+        tokens=settings.SIGNUP_BONUS,
+        xp=0,
+        referralCode=generate_referral_code(),
     )
     db.add(user)
+    await db.commit()
+    await db.refresh(user)
 
     # Process referral
-    if data.referralCode:
-        # Find referrer
-        referrer_id = data.referralCode.replace("ref_", "")
-        referrer = await db.execute(select(User).where(User.id == referrer_id))
-        ref_user = referrer.scalar_one_or_none()
-        if ref_user:
-            ref_user.referral_count = (ref_user.referral_count or 0) + 1
-            ref_user.tokens = (ref_user.tokens or 0) + 100
-            user.referred_by = ref_user.id
-
-    await db.flush()
-
-    # Send verification email (best-effort)
-    try:
-        await send_email(user.email, "verify_email", {"token": user.email_verification_token, "name": user.first_name or user.username})
-    except Exception as e:
-        logger.warning(f"Failed to send verification email: {e}")
-
-    # Generate tokens
-    access = create_access_token({"sub": user.id})
-    refresh = create_refresh_token({"sub": user.id})
+    if data.referral_code:
+        ref = await db.execute(select(User).where(User.referralCode == data.referral_code))
+        referrer = ref.scalar_one_or_none()
+        if referrer and referrer.id != user.id:
+            user.referredById = referrer.id
+            referrer.tokens += settings.REFERRAL_BONUS
+            user.tokens += settings.REFERRAL_BONUS
+            db.add(Referral(referrerId=referrer.id, referredId=user.id, code=data.referral_code, bonus=100))
+            await db.commit()
 
     return {
         "success": True,
         "data": {
-            "access_token": access,
-            "refresh_token": refresh,
             "user": user.to_dict(),
+            "token": create_access_token(user.id),
+            "refreshToken": create_refresh_token(user.id),
         }
     }
 
 
-@router.post("/login", response_model=TokenResponse)
-async def login(data: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
-    """Login user."""
+@router.post("/login", response_model=TokenOut)
+async def login(data: LoginIn, db: AsyncSession = Depends(get_db)):
+    """Login with email & password."""
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
+    if not user or not user.password or not verify_password(data.password, user.password):
+        raise HTTPException(401, "Email yoki parol noto'g'ri")
+    if not user.isActive:
+        raise HTTPException(403, "Akkaunt bloklangan")
 
-    if not user or not verify_password(data.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-
-    if not user.is_active:
-        raise HTTPException(status_code=403, detail="Account is disabled")
-
-    # Update last login
-    user.last_login_at = datetime.utcnow()
-    user.last_login_ip = request.client.host if request.client else None
-
-    access = create_access_token({"sub": user.id})
-    refresh = create_refresh_token({"sub": user.id})
-
+    user.lastSeenAt = datetime.now(timezone.utc)
+    await db.commit()
     return {
         "success": True,
         "data": {
-            "access_token": access,
-            "refresh_token": refresh,
             "user": user.to_dict(),
+            "token": create_access_token(user.id),
+            "refreshToken": create_refresh_token(user.id),
         }
     }
 
 
-@router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(data: dict, db: AsyncSession = Depends(get_db)):
-    """Refresh access token."""
-    token = data.get("refresh_token")
-    if not token:
-        raise HTTPException(status_code=400, detail="Refresh token required")
+class TelegramIn(BaseModel):
+    telegramId: int
+    username: str | None = None
+    firstName: str | None = None
+    lastName: str | None = None
+    languageCode: str | None = "uz"
+    isPremium: bool = False
+    photoUrl: str | None = None
 
-    try:
-        payload = decode_token(token)
-        if payload.get("type") != "refresh":
-            raise HTTPException(status_code=401, detail="Invalid token type")
-        user_id = payload.get("sub")
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
-    result = await db.execute(select(User).where(User.id == user_id))
+@router.post("/telegram", response_model=TokenOut)
+async def login_telegram(data: TelegramIn, db: AsyncSession = Depends(get_db)):
+    """Login or register via Telegram."""
+    result = await db.execute(select(User).where(User.telegramId == data.telegramId))
     user = result.scalar_one_or_none()
-    if not user or not user.is_active:
-        raise HTTPException(status_code=401, detail="User not found")
 
-    access = create_access_token({"sub": user.id})
-    refresh = create_refresh_token({"sub": user.id})
+    if not user:
+        # Create new
+        base_username = data.username or f"user{data.telegramId}"
+        # Ensure unique
+        existing = await db.execute(select(User).where(User.username == base_username))
+        if existing.scalar_one_or_none():
+            base_username = f"{base_username}_{data.telegramId}"
+
+        user = User(
+            telegramId=data.telegramId,
+            username=base_username,
+            firstName=data.firstName or "User",
+            lastName=data.lastName or "",
+            avatar=data.photoUrl,
+            isTelegramPremium=data.isPremium,
+            tokens=settings.SIGNUP_BONUS,
+            xp=0,
+            referralCode=generate_referral_code(),
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
+    user.lastSeenAt = datetime.now(timezone.utc)
+    if data.photoUrl and not user.avatar:
+        user.avatar = data.photoUrl
+    await db.commit()
+    await db.refresh(user)
 
     return {
         "success": True,
         "data": {
-            "access_token": access,
-            "refresh_token": refresh,
+            "user": user.to_dict(),
+            "token": create_access_token(user.id),
+            "refreshToken": create_refresh_token(user.id),
+        }
+    }
+
+
+class RefreshIn(BaseModel):
+    refreshToken: str
+
+
+@router.post("/refresh")
+async def refresh(data: RefreshIn):
+    """Refresh access token."""
+    payload = decode_token(data.refreshToken)
+    if not payload or payload.get("type") != "refresh":
+        raise HTTPException(401, "Yaroqsiz refresh token")
+    user_id = payload.get("sub")
+    return {
+        "success": True,
+        "data": {
+            "token": create_access_token(int(user_id)),
+            "refreshToken": create_refresh_token(int(user_id)),
         }
     }
 
 
 @router.post("/logout")
-async def logout(user: User = Depends(get_current_user)):
-    """Logout user (invalidate session)."""
-    # In production: blacklist token in Redis
-    return {"success": True, "data": {"message": "Logged out"}}
+async def logout(current_user: User = Depends(get_current_user)):
+    """Logout (invalidate token)."""
+    redis = await get_redis()
+    if redis:
+        await redis.set(f"blacklist:{current_user.id}", "1", ex=86400 * 7)
+    return {"success": True, "data": {"message": "Tizimdan chiqdingiz"}}
 
 
 @router.get("/me")
-async def get_me(user: User = Depends(get_current_user)):
+async def get_me(current_user: User = Depends(get_current_user)):
     """Get current user info."""
-    return {"success": True, "data": user.to_dict()}
+    return {"success": True, "data": current_user.to_dict()}
 
 
-@router.post("/telegram", response_model=TokenResponse)
-async def telegram_auth(data: TelegramAuthRequest, db: AsyncSession = Depends(get_db)):
-    """Authenticate via Telegram WebApp."""
-    tg_user = verify_telegram_init_data(data.initData)
-    if not tg_user or not tg_user.get("id"):
-        raise HTTPException(status_code=401, detail="Invalid Telegram data")
+class ForgotIn(BaseModel):
+    email: EmailStr
 
-    tg_id = str(tg_user["id"])
-    result = await db.execute(select(User).where(User.telegram_id == tg_id))
+
+@router.post("/forgot")
+async def forgot_password(data: ForgotIn, db: AsyncSession = Depends(get_db)):
+    """Request password reset."""
+    result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
-
-    if not user:
-        # Create new user
-        username = tg_user.get("username") or f"user_{tg_id}"
-        # Ensure unique username
-        i = 0
-        original = username
-        while True:
-            check = await db.execute(select(User).where(User.username == username))
-            if not check.scalar_one_or_none():
-                break
-            i += 1
-            username = f"{original}_{i}"
-
-        user = User(
-            id=generate_random_token(16),
-            email=f"{tg_id}@telegram.00o.uz",
-            username=username,
-            password_hash=hash_password(generate_random_token(32)),
-            first_name=tg_user.get("first_name"),
-            last_name=tg_user.get("last_name"),
-            avatar=tg_user.get("photo_url"),
-            telegram_id=tg_id,
-            is_verified=True,
-            tokens=100,
-        )
-        db.add(user)
-        await db.flush()
-
-    access = create_access_token({"sub": user.id})
-    refresh = create_refresh_token({"sub": user.id})
-
+    # Always return success to prevent email enumeration
     return {
         "success": True,
-        "data": {
-            "access_token": access,
-            "refresh_token": refresh,
-            "user": user.to_dict(),
-        }
+        "data": {"message": "Agar email mavjud bo'lsa, tiklash havolasi yuborildi"}
     }
 
 
-@router.post("/forgot-password")
-async def forgot_password(data: dict, db: AsyncSession = Depends(get_db)):
-    """Send password reset email."""
-    email = data.get("email")
-    if not email:
-        raise HTTPException(status_code=400, detail="Email required")
-
-    result = await db.execute(select(User).where(User.email == email))
-    user = result.scalar_one_or_none()
-
-    # Always return success to prevent email enumeration
-    if user:
-        token = generate_random_token(32)
-        user.reset_password_token = token
-        user.reset_password_expires = datetime.utcnow().timestamp() + 3600
-        try:
-            await send_email(user.email, "reset_password", {"token": token, "name": user.first_name or user.username})
-        except Exception as e:
-            logger.error(f"Failed to send reset email: {e}")
-
-    return {"success": True, "data": {"message": "If email exists, reset link sent"}}
+class ResetIn(BaseModel):
+    token: str
+    newPassword: str = Field(min_length=8)
 
 
-@router.post("/reset-password")
-async def reset_password(data: dict, db: AsyncSession = Depends(get_db)):
+@router.post("/reset")
+async def reset_password(data: ResetIn, db: AsyncSession = Depends(get_db)):
     """Reset password with token."""
-    token = data.get("token")
-    new_password = data.get("password")
-    if not token or not new_password:
-        raise HTTPException(status_code=400, detail="Token and password required")
-    if len(new_password) < 8:
-        raise HTTPException(status_code=400, detail="Password too short")
-
-    result = await db.execute(select(User).where(User.reset_password_token == token))
+    redis = await get_redis()
+    if not redis:
+        raise HTTPException(500, "Xizmat vaqtincha mavjud emas")
+    user_id = await redis.get(f"reset:{data.token}")
+    if not user_id:
+        raise HTTPException(400, "Yaroqsiz yoki eskirgan token")
+    result = await db.execute(select(User).where(User.id == int(user_id)))
     user = result.scalar_one_or_none()
-
-    if not user or not user.reset_password_expires or user.reset_password_expires < datetime.utcnow().timestamp():
-        raise HTTPException(status_code=400, detail="Invalid or expired token")
-
-    user.password_hash = hash_password(new_password)
-    user.reset_password_token = None
-    user.reset_password_expires = None
-
-    return {"success": True, "data": {"message": "Password updated"}}
-
-
-@router.post("/verify-email")
-async def verify_email(data: dict, db: AsyncSession = Depends(get_db)):
-    """Verify email with token."""
-    token = data.get("token")
-    if not token:
-        raise HTTPException(status_code=400, detail="Token required")
-
-    result = await db.execute(select(User).where(User.email_verification_token == token))
-    user = result.scalar_one_or_none()
-
     if not user:
-        raise HTTPException(status_code=400, detail="Invalid token")
-
-    user.is_verified = True
-    user.email_verification_token = None
-
-    return {"success": True, "data": {"message": "Email verified"}}
-
-
-@router.post("/2fa/enable")
-async def enable_2fa(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """Enable 2FA - returns secret and QR URI."""
-    secret = generate_2fa_secret()
-    user.two_fa_secret = secret
-    user.two_fa_enabled = False
-    uri = get_2fa_uri(secret, user.username)
-    return {"success": True, "data": {"secret": secret, "uri": uri}}
-
-
-@router.post("/2fa/verify")
-async def verify_2fa(data: dict, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """Verify 2FA code and enable 2FA."""
-    code = data.get("code")
-    if not code or not user.two_fa_secret:
-        raise HTTPException(status_code=400, detail="Code and pending secret required")
-
-    if not verify_2fa_code(user.two_fa_secret, code):
-        raise HTTPException(status_code=400, detail="Invalid code")
-
-    user.two_fa_enabled = True
-    return {"success": True, "data": {"message": "2FA enabled"}}
+        raise HTTPException(404, "Foydalanuvchi topilmadi")
+    user.password = hash_password(data.newPassword)
+    await redis.delete(f"reset:{data.token}")
+    await db.commit()
+    return {"success": True, "data": {"message": "Parol yangilandi"}}
