@@ -1,263 +1,131 @@
 """User endpoints."""
-from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, or_, func
-from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel, Field
 from typing import Optional
-import os
-import uuid
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, get_current_user_optional
-from app.core.config import settings
-from app.models.user import User, Follow
+from app.core.security import hash_password, verify_password
+from app.api.deps import get_current_user, get_pagination, Pagination
+from app.models.user import User
+from app.models.chat import Follow
 
-router = APIRouter()
+router = APIRouter(prefix="/users", tags=["Users"])
 
 
-class UpdateProfileRequest(BaseModel):
+class UpdateIn(BaseModel):
     firstName: Optional[str] = None
     lastName: Optional[str] = None
     bio: Optional[str] = None
     location: Optional[str] = None
     website: Optional[str] = None
+    occupation: Optional[str] = None
     phone: Optional[str] = None
-    language: Optional[str] = None
-    timezone: Optional[str] = None
-    notificationSettings: Optional[dict] = None
-    privacySettings: Optional[dict] = None
+    username: Optional[str] = None
+
+
+class PasswordIn(BaseModel):
+    current: str
+    new: str = Field(min_length=8)
 
 
 @router.get("/me")
-async def get_me(user: User = Depends(get_current_user)):
-    """Get current user."""
-    return {"success": True, "data": user.to_dict()}
+async def get_me(current_user: User = Depends(get_current_user)):
+    return {"success": True, "data": current_user.to_dict(include_private=True)}
 
 
 @router.patch("/me")
-async def update_me(
-    data: UpdateProfileRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Update current user."""
-    update_data = data.model_dump(exclude_none=True)
-    field_map = {
-        "firstName": "first_name",
-        "lastName": "last_name",
-        "notificationSettings": "notification_settings",
-        "privacySettings": "privacy_settings",
-    }
-    for key, value in update_data.items():
-        setattr(user, field_map.get(key, key), value)
-
-    user.updated_at = datetime.utcnow()
-    return {"success": True, "data": user.to_dict()}
+async def update_me(data: UpdateIn, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    update = data.model_dump(exclude_unset=True)
+    for k, v in update.items():
+        setattr(current_user, k, v)
+    await db.commit()
+    await db.refresh(current_user)
+    return {"success": True, "data": current_user.to_dict(include_private=True)}
 
 
-@router.post("/me/avatar")
-async def upload_avatar(
-    file: UploadFile = File(...),
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Upload user avatar."""
-    if file.content_type not in settings.ALLOWED_IMAGE_TYPES:
-        raise HTTPException(status_code=400, detail="Invalid file type")
-
-    content = await file.read()
-    if len(content) > settings.MAX_UPLOAD_SIZE:
-        raise HTTPException(status_code=400, detail="File too large")
-
-    # Save file
-    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
-    filename = f"avatars/{user.id}_{uuid.uuid4().hex[:8]}.{ext}"
-    filepath = os.path.join(settings.UPLOAD_DIR, filename)
-
-    with open(filepath, "wb") as f:
-        f.write(content)
-
-    user.avatar = f"/uploads/{filename}"
-    return {"success": True, "data": {"url": user.avatar, "user": user.to_dict()}}
+@router.post("/me/password")
+async def change_password(data: PasswordIn, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if not verify_password(data.current, current_user.password):
+        raise HTTPException(400, "Joriy parol noto'g'ri")
+    current_user.password = hash_password(data.new)
+    await db.commit()
+    return {"success": True, "data": {"message": "Parol yangilandi"}}
 
 
-@router.get("/me/stats")
-async def get_my_stats(
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Get current user stats."""
-    return {
-        "success": True,
-        "data": {
-            "followers": user.followers_count,
-            "following": user.following_count,
-            "posts": user.posts_count,
-            "rating": user.rating,
-            "reviews": user.reviews_count,
-            "tokens": user.tokens,
-            "xp": user.xp,
-            "level": user.level,
-        }
-    }
-
-
-@router.get("/by/{username}")
-async def get_by_username(
-    username: str,
-    db: AsyncSession = Depends(get_db),
-    current: Optional[User] = Depends(get_current_user_optional),
-):
-    """Get user by username."""
+@router.get("/{username}")
+async def get_by_username(username: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
     result = await db.execute(select(User).where(User.username == username))
     user = result.scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    is_following = False
-    if current:
-        f = await db.execute(
-            select(Follow).where(
-                Follow.follower_id == current.id,
-                Follow.following_id == user.id,
-            )
-        )
-        is_following = f.scalar_one_or_none() is not None
-
-    data = user.to_dict()
-    data["isFollowing"] = is_following
-    return {"success": True, "data": data}
-
-
-@router.get("/{user_id}")
-async def get_user(
-    user_id: str,
-    db: AsyncSession = Depends(get_db),
-    current: Optional[User] = Depends(get_current_user_optional),
-):
-    """Get user by ID."""
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    is_following = False
-    if current:
-        f = await db.execute(
-            select(Follow).where(
-                Follow.follower_id == current.id,
-                Follow.following_id == user.id,
-            )
-        )
-        is_following = f.scalar_one_or_none() is not None
-
-    data = user.to_dict()
-    data["isFollowing"] = is_following
-    return {"success": True, "data": data}
-
-
-@router.get("/search/all")
-async def search_users(
-    q: str = "",
-    limit: int = 20,
-    db: AsyncSession = Depends(get_db),
-):
-    """Search users."""
-    if not q or len(q) < 2:
-        return {"success": True, "data": []}
-    result = await db.execute(
-        select(User)
-        .where(or_(
-            User.username.ilike(f"%{q}%"),
-            User.first_name.ilike(f"%{q}%"),
-            User.last_name.ilike(f"%{q}%"),
-        ))
-        .limit(limit)
-    )
-    users = result.scalars().all()
-    return {"success": True, "data": [u.to_dict() for u in users]}
+        raise HTTPException(404, "Foydalanuvchi topilmadi")
+    return {"success": True, "data": user.to_dict(include_private=False)}
 
 
 @router.post("/{user_id}/follow")
-async def follow_user(
-    user_id: str,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Follow a user."""
-    if user_id == user.id:
-        raise HTTPException(status_code=400, detail="Cannot follow yourself")
-
+async def follow(user_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if user_id == current_user.id:
+        raise HTTPException(400, "O'zingizga follow qila olmaysiz")
     target = await db.execute(select(User).where(User.id == user_id))
-    target_user = target.scalar_one_or_none()
-    if not target_user:
-        raise HTTPException(status_code=404, detail="User not found")
+    if not target.scalar_one_or_none():
+        raise HTTPException(404, "Foydalanuvchi topilmadi")
 
-    existing = await db.execute(
-        select(Follow).where(
-            Follow.follower_id == user.id,
-            Follow.following_id == user_id,
-        )
-    )
+    existing = await db.execute(select(Follow).where(Follow.followerId == current_user.id, Follow.followingId == user_id))
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Already following")
+        raise HTTPException(400, "Allaqachon follow qilingan")
 
-    follow = Follow(follower_id=user.id, following_id=user_id)
-    db.add(follow)
-    user.following_count = (user.following_count or 0) + 1
-    target_user.followers_count = (target_user.followers_count or 0) + 1
-
-    return {"success": True, "data": {"following": True}}
+    db.add(Follow(followerId=current_user.id, followingId=user_id))
+    target_user = (await db.execute(select(User).where(User.id == user_id))).scalar_one()
+    target_user.followersCount = (target_user.followersCount or 0) + 1
+    current_user.followingCount = (current_user.followingCount or 0) + 1
+    await db.commit()
+    return {"success": True, "data": {"following": True, "followersCount": target_user.followersCount}}
 
 
 @router.delete("/{user_id}/follow")
-async def unfollow_user(
-    user_id: str,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Unfollow a user."""
-    result = await db.execute(
-        select(Follow).where(
-            Follow.follower_id == user.id,
-            Follow.following_id == user_id,
-        )
-    )
-    follow = result.scalar_one_or_none()
-    if not follow:
-        raise HTTPException(status_code=400, detail="Not following")
-
-    await db.delete(follow)
-    user.following_count = max(0, (user.following_count or 0) - 1)
-    target = await db.execute(select(User).where(User.id == user_id))
-    target_user = target.scalar_one_or_none()
-    if target_user:
-        target_user.followers_count = max(0, (target_user.followers_count or 0) - 1)
-
+async def unfollow(user_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    existing = await db.execute(select(Follow).where(Follow.followerId == current_user.id, Follow.followingId == user_id))
+    rel = existing.scalar_one_or_none()
+    if rel:
+        await db.delete(rel)
+        target_user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+        if target_user and target_user.followersCount > 0:
+            target_user.followersCount -= 1
+        if current_user.followingCount > 0:
+            current_user.followingCount -= 1
+        await db.commit()
     return {"success": True, "data": {"following": False}}
 
 
-@router.get("/{user_id}/followers")
-async def get_followers(user_id: str, db: AsyncSession = Depends(get_db), limit: int = 50):
-    """Get user followers."""
-    result = await db.execute(
-        select(User)
-        .join(Follow, Follow.follower_id == User.id)
-        .where(Follow.following_id == user_id)
-        .limit(limit)
-    )
-    return {"success": True, "data": [u.to_dict() for u in result.scalars().all()]}
+@router.get("")
+async def list_users(
+    q: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    query = select(User).where(User.isActive == True)
+    if q:
+        query = query.where(or_(
+            User.username.ilike(f"%{q}%"),
+            User.firstName.ilike(f"%{q}%"),
+            User.lastName.ilike(f"%{q}%"),
+        ))
+    query = query.order_by(User.followersCount.desc()).offset((page - 1) * limit).limit(limit)
+    res = await db.execute(query)
+    users = res.scalars().all()
+    return {"success": True, "data": [u.to_dict() for u in users]}
 
 
-@router.get("/{user_id}/following")
-async def get_following(user_id: str, db: AsyncSession = Depends(get_db), limit: int = 50):
-    """Get users that this user follows."""
-    result = await db.execute(
-        select(User)
-        .join(Follow, Follow.following_id == User.id)
-        .where(Follow.follower_id == user_id)
-        .limit(limit)
-    )
-    return {"success": True, "data": [u.to_dict() for u in result.scalars().all()]}
+@router.get("/suggestions/list")
+async def suggestions(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Get suggested users to follow."""
+    # Random users not following yet
+    following = await db.execute(select(Follow.followingId).where(Follow.followerId == current_user.id))
+    following_ids = [r[0] for r in following.all()]
+    following_ids.append(current_user.id)
+    query = select(User).where(User.isActive == True, User.id.notin_(following_ids)).order_by(func.random()).limit(10)
+    res = await db.execute(query)
+    users = res.scalars().all()
+    return {"success": True, "data": [u.to_dict() for u in users]}
