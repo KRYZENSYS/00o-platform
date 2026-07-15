@@ -1,0 +1,91 @@
+{
+  "common": {
+    "appName": "00o.uz",
+    "tagline": "O'zbek platformasi",
+    "loading": "Yuklanmoqda...",
+    "error": "Xatolik yuz berdi",
+    "retry": "Qayta urinish",
+    "save": "Saqlash",
+    "cancel": "Bekor qilish",
+    "delete": "O'chirish",
+    "edit": "Tahrirlash",
+    "create": "Yaratish",
+    "search": "Qidirish",
+    "next": "Keyingi",
+    "previous": "Oldingi",
+    "yes": "Ha",
+    "no": "Yo'q",
+    "all": "Hammasi",
+    "none": "Hech narsa"
+  },
+  "nav": {
+    "home": "Bosh sahifa",
+    "feed": "Lenta",
+    "todos": "Vazifalar",
+    "notes": "Eslatmalar",
+    "habits": "Odatlar",
+    "finance": "Moliya",
+    "health": "Sog'liq",
+    "chat": "Xabarlar",
+    "profile": "Profil",
+    "settings": "Sozlamalar",
+    "premium": "Premium",
+    "admin": "Admin"
+  },
+  "auth": {
+    "login": "Kirish",
+    "register": "Ro'yxatdan o'tish",
+    "logout": "Chiqish",
+    "email": "Email",
+    "phone": "Telefon",
+    "username": "Foydalanuvchi nomi",
+    "password": "Parol",
+    "forgotPassword": "Parolni unutdingizmi?",
+    "noAccount": "Akkauntingiz yo'qmi?",
+    "hasAccount": "Akkauntingiz bormi?",
+    "welcomeBack": "Qaytib keldingiz!",
+    "welcomeTitle": "Xush kelibsiz",
+    "createAccount": "Akkaunt yarating"
+  },
+  "feed": {
+    "title": "Yangiliklar",
+    "createPost": "Post yozish...",
+    "publish": "Nashr etish",
+    "like": "Yoqdi",
+    "comment": "Komment",
+    "share": "Ulashish",
+    "comments": "Kommentlar",
+    "empty": "Hozircha postlar yo'q. Birinchi bo'ling!"
+  },
+  "todos": {
+    "title": "Vazifalar",
+    "new": "Yangi vazifa",
+    "placeholder": "Yangi vazifa qo'shing...",
+    "empty": "Vazifalar yo'q. Yangi vazifa qo'shing!",
+    "stats": "Statistika",
+    "completed": "Bajarilgan",
+    "pending": "Kutilmoqda",
+    "overdue": "Muddati o'tgan",
+    "priority": {
+      "LOW": "Past",
+      "MEDIUM": "O'rta",
+      "HIGH": "Yuqori",
+      "URGENT": "Shoshilinch"
+    }
+  },
+  "premium": {
+    "title": "Premium ga o'ting",
+    "subtitle": "Barcha imkoniyatlardan foydalaning",
+    "monthly": "Oylik",
+    "yearly": "Yillik",
+    "save": "{percent}% tejash",
+    "subscribe": "Obuna bo'lish",
+    "features": {
+      "unlimited": "Cheksiz vazifalar",
+      "ai": "AI yordamchi",
+      "analytics": "Batafsil tahlil",
+      "support": "24/7 qo'llab-quvvatlash",
+      "export": "Ma'lumot eksporti"
+    }
+  }
+}
