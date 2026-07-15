@@ -1,22 +1,26 @@
 {
-  "name": "00o.uz - O'zbek platformasi",
+  "name": "00o.uz — O'zbek platformasi",
   "short_name": "00o.uz",
-  "description": "50+ foydali ilova bir joyda",
+  "description": "O'zbek tilidagi eng katta onlayn platforma",
   "start_url": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#ffffff",
-  "theme_color": "#8b5cf6",
-  "orientation": "portrait-primary",
-  "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
-  ],
-  "categories": ["productivity", "social", "lifestyle", "finance", "health"],
+  "theme_color": "#2563eb",
   "lang": "uz",
-  "dir": "ltr",
-  "shortcuts": [
-    { "name": "Vazifalar", "url": "/todos", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
-    { "name": "Eslatmalar", "url": "/notes", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
-    { "name": "Moliya", "url": "/finance", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
-  ]
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["social", "productivity", "business"]
 }
