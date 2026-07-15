@@ -1,480 +1,292 @@
-"""AI endpoints with GroqCloud integration."""
-from datetime import datetime, timedelta
+"""AI endpoints."""
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
 from pydantic import BaseModel
-from typing import List, Optional
-from loguru import logger
+from typing import List, Optional, Dict, Any
+import json
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
 from app.core.config import settings
+from app.api.deps import get_current_user
 from app.models.user import User
-from app.models.ai import AIChat, AIMessage, AIUsage
-from app.services.ai import get_ai_response, stream_ai_response, AI_MODELS
+from app.models.ai import AIConversation, AIMessage
+from app.services.ai_service import ai_service, GROQ_MODELS
 
-router = APIRouter()
-
-
-class ChatMessage(BaseModel):
-    role: str  # user, assistant, system
-    content: str
+router = APIRouter(prefix="/ai", tags=["AI"])
 
 
-class ChatRequest(BaseModel):
-    messages: List[ChatMessage]
-    feature: str = "chat"
-    model: Optional[str] = None
-    stream: bool = False
+class ChatIn(BaseModel):
+    messages: List[Dict[str, str]]
+    type: str = "chat"
+    model: str = "llama-3.3-70b-versatile"
+    conversationId: Optional[int] = None
+    temperature: float = 0.7
+    maxTokens: int = 2048
 
 
-class ToolRequest(BaseModel):
-    prompt: str
-    context: Optional[dict] = None
-    language: str = "uz"
+@router.get("/models")
+async def list_models(current_user: User = Depends(get_current_user)):
+    """List available AI models."""
+    return {"success": True, "data": GROQ_MODELS}
 
-
-# ============ CHAT ============
 
 @router.post("/chat")
-async def chat(
-    data: ChatRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """AI chat endpoint."""
-    # Check rate limit
-    today = datetime.utcnow().date()
-    usage = await db.execute(
-        select(func.count(AIMessage.id))
-        .where(AIMessage.user_id == user.id)
-        .where(func.date(AIMessage.created_at) == today)
-    )
-    used = usage.scalar() or 0
-    limit = settings.AI_DAILY_LIMIT_PRO if user.is_premium else settings.AI_DAILY_LIMIT_FREE
-    if used >= limit:
-        raise HTTPException(status_code=429, detail=f"Daily limit reached ({limit}). Upgrade to Pro for more.")
+async def chat(data: ChatIn, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Chat with AI."""
+    # Check daily limits
+    limit = settings.PREMIUM_AI_REQUESTS_PER_DAY if current_user.isPremium else settings.FREE_AI_REQUESTS_PER_DAY
+    # (In real app, count today's usage)
+    if current_user.tokens <= 0 and not current_user.isPremium:
+        raise HTTPException(402, "Tokenlar yetarli emas. Iltimos, to'ldiring.")
 
-    # Save chat
-    chat = None
-    if not data.messages or data.messages[0].role != "system":
-        # Find or create chat session
-        chat_result = await db.execute(
-            select(AIChat).where(AIChat.user_id == user.id).order_by(AIChat.updated_at.desc()).limit(1)
-        )
-        chat = chat_result.scalar_one_or_none()
-        if not chat:
-            chat = AIChat(user_id=user.id, title=data.messages[-1].content[:50] if data.messages else "Chat")
-            db.add(chat)
-            await db.flush()
+    if data.model not in GROQ_MODELS:
+        raise HTTPException(400, "Noto'g'ri model")
+
+    # Save conversation
+    conv = None
+    if data.conversationId:
+        result = await db.execute(select(AIConversation).where(AIConversation.id == data.conversationId, AIConversation.userId == current_user.id))
+        conv = result.scalar_one_or_none()
+
+    if not conv:
+        title = data.messages[0]["content"][:50] if data.messages else "Yangi chat"
+        conv = AIConversation(userId=current_user.id, title=title, model=data.model)
+        db.add(conv)
+        await db.commit()
+        await db.refresh(conv)
 
     # Save user message
-    if data.messages:
-        user_msg = AIMessage(
-            chat_id=chat.id if chat else None,
-            user_id=user.id,
-            role="user",
-            content=data.messages[-1].content,
-            feature=data.feature,
-        )
-        db.add(user_msg)
+    user_msg_content = data.messages[-1].get("content", "") if data.messages else ""
+    db.add(AIMessage(conversationId=conv.id, role="user", content=user_msg_content))
+    await db.commit()
 
-    # Get AI response
-    model = data.model or settings.GROQ_DEFAULT_MODEL
+    # Call AI
     try:
-        result = await get_ai_response(
-            messages=[m.model_dump() for m in data.messages],
-            model=model,
-            feature=data.feature,
+        response_text = await ai_service.chat(
+            messages=data.messages,
+            model=data.model,
+            temperature=data.temperature,
+            max_tokens=data.maxTokens,
         )
     except Exception as e:
-        logger.error(f"AI error: {e}")
-        raise HTTPException(status_code=503, detail="AI service temporarily unavailable")
+        raise HTTPException(500, f"AI xatolik: {str(e)}")
 
-    # Save assistant message
-    if chat:
-        ai_msg = AIMessage(
-            chat_id=chat.id,
-            user_id=user.id,
-            role="assistant",
-            content=result["content"],
-            model=model,
-            tokens_used=result.get("tokens", 0),
-        )
-        db.add(ai_msg)
-        chat.updated_at = datetime.utcnow()
+    # Save AI message
+    db.add(AIMessage(conversationId=conv.id, role="assistant", content=response_text, model=data.model))
 
-    # Track usage
-    usage_record = AIUsage(
-        user_id=user.id,
-        feature=data.feature,
-        model=model,
-        tokens=result.get("tokens", 0),
-        cost=result.get("cost", 0),
-    )
-    db.add(usage_record)
+    # Deduct tokens (1 token per request for free, configurable for premium)
+    cost = 5 if not current_user.isPremium else 1
+    if current_user.tokens >= cost:
+        current_user.tokens -= cost
+    current_user.xp = (current_user.xp or 0) + 2
+
+    await db.commit()
 
     return {
         "success": True,
         "data": {
-            "content": result["content"],
-            "model": model,
-            "tokens": result.get("tokens", 0),
-            "chatId": chat.id if chat else None,
+            "message": response_text,
+            "conversationId": conv.id,
+            "model": data.model,
+            "tokensUsed": cost,
+            "tokensLeft": current_user.tokens,
         }
     }
 
 
-@router.post("/stream")
-async def stream_chat(
-    data: ChatRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Streaming AI chat."""
-    from fastapi.responses import StreamingResponse
-    model = data.model or settings.GROQ_DEFAULT_MODEL
+class ToolIn(BaseModel):
+    prompt: str
+    context: Optional[Dict[str, Any]] = None
 
-    async def generate():
-        async for chunk in stream_ai_response([m.model_dump() for m in data.messages], model=model):
-            yield f"data: {chunk}\n\n"
-        yield "data: [DONE]\n\n"
-
-    return StreamingResponse(generate(), media_type="text/event-stream")
-
-
-# ============ TOOLS (20+) ============
 
 @router.post("/tools/startup-idea")
-async def tool_startup_idea(
-    data: ToolRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Generate startup idea."""
-    system = "Siz startup ekspertisiz. Foydalanuvchiga batafsil, amaliy va innovatsion startup g'oya taklif qiling. O'zbek tilida javob bering."
-    user_msg = f"Menga {data.context.get('industry', 'texnologiya')} sohasida startup g'oya kerak. Byudjet: {data.context.get('budget', '100M so\\'m')}. Bozor: O'zbekiston."
-    result = await get_ai_response(
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": user_msg}],
-        feature="startup-idea",
+async def tool_startup_idea(data: ToolIn, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Generate startup ideas."""
+    if current_user.tokens < 10 and not current_user.isPremium:
+        raise HTTPException(402, "Tokenlar yetarli emas")
+    result = await ai_service.startup_idea(
+        data.context.get("industry", "tech") if data.context else "tech",
+        data.context.get("skills", "") if data.context else "",
+        data.context.get("budget", "0-10000") if data.context else "0-10000",
     )
-    return {"success": True, "data": {"result": result["content"]}}
+    if current_user.tokens >= 10:
+        current_user.tokens -= 10
+    await db.commit()
+    return {"success": True, "data": {"result": result, "tokensUsed": 10}}
 
 
 @router.post("/tools/business-plan")
-async def tool_business_plan(
-    data: ToolRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Generate business plan."""
-    system = "Siz biznes-plan ekspertisiz. Batafsil biznes-plan tuzing: executive summary, market analysis, products, marketing, financial projections. O'zbek tilida."
-    result = await get_ai_response(
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": data.prompt}],
-        feature="business-plan",
-    )
-    return {"success": True, "data": {"result": result["content"]}}
+async def tool_business_plan(data: ToolIn, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if current_user.tokens < 20 and not current_user.isPremium:
+        raise HTTPException(402, "Tokenlar yetarli emas")
+    ctx = data.context or {}
+    result = await ai_service.business_plan(ctx.get("name", "Startup"), ctx.get("industry", "tech"), data.prompt)
+    if current_user.tokens >= 20:
+        current_user.tokens -= 20
+    await db.commit()
+    return {"success": True, "data": {"result": result, "tokensUsed": 20}}
 
 
 @router.post("/tools/code")
-async def tool_code(
-    data: ToolRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Code generation."""
-    system = "Siz senior dasturchisiz. To'liq, ishlaydigan kod yozing. Izohlar qo'shing. Best practices ga rioya qiling."
-    result = await get_ai_response(
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": data.prompt}],
-        model="qwen-2.5-coder-32b",
-        feature="code",
-    )
-    return {"success": True, "data": {"result": result["content"]}}
-
-
-@router.post("/tools/code-review")
-async def tool_code_review(
-    data: dict,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Code review."""
-    code = data.get("code", "")
-    language = data.get("language", "typescript")
-    system = f"Siz senior code reviewer siz. {language} tilidagi kodni tekshiring. Xatolar, yaxshilashlar, best practices bo'yicha tavsiyalar bering. O'zbek tilida."
-    result = await get_ai_response(
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": code}],
-        model="qwen-2.5-coder-32b",
-        feature="code-review",
-    )
-    return {"success": True, "data": {"result": result["content"]}}
-
-
-@router.post("/tools/resume")
-async def tool_resume(
-    data: ToolRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Resume/CV generator."""
-    system = "Siz HR ekspertisiz. Professional rezyume tuzing. ATS-friendly format. O'zbek tilida."
-    result = await get_ai_response(
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": data.prompt}],
-        feature="resume",
-    )
-    return {"success": True, "data": {"result": result["content"]}}
-
-
-@router.post("/tools/cover-letter")
-async def tool_cover_letter(
-    data: ToolRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Cover letter."""
-    system = "Siz HR mutaxassisiz. Ishga kirish uchun ariza xati yozing. Professional, qisqa, ta'sirli. O'zbek tilida."
-    result = await get_ai_response(
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": data.prompt}],
-        feature="cover-letter",
-    )
-    return {"success": True, "data": {"result": result["content"]}}
+async def tool_code(data: ToolIn, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if current_user.tokens < 5 and not current_user.isPremium:
+        raise HTTPException(402, "Tokenlar yetarli emas")
+    ctx = data.context or {}
+    result = await ai_service.code_assistant(data.prompt, ctx.get("language", "auto"), ctx.get("task", "write"))
+    if current_user.tokens >= 5:
+        current_user.tokens -= 5
+    await db.commit()
+    return {"success": True, "data": {"result": result, "tokensUsed": 5}}
 
 
 @router.post("/tools/translate")
-async def tool_translate(
-    data: dict,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Translate text."""
-    text = data.get("text", "")
-    from_lang = data.get("from", "uz")
-    to_lang = data.get("to", "en")
-    lang_names = {"uz": "O'zbek", "en": "English", "ru": "Русский"}
-    system = f"Siz professional tarjimonsiz. {lang_names.get(from_lang, from_lang)} tilidan {lang_names.get(to_lang, to_lang)} tiliga tarjima qiling. Faqat tarjima matnini qaytaring."
-    result = await get_ai_response(
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": text}],
-        feature="translate",
-    )
-    return {"success": True, "data": {"result": result["content"]}}
+async def tool_translate(data: ToolIn, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if current_user.tokens < 2 and not current_user.isPremium:
+        raise HTTPException(402, "Tokenlar yetarli emas")
+    ctx = data.context or {}
+    result = await ai_service.translate(data.prompt, ctx.get("from", "auto"), ctx.get("to", "en"))
+    if current_user.tokens >= 2:
+        current_user.tokens -= 2
+    await db.commit()
+    return {"success": True, "data": {"result": result, "tokensUsed": 2}}
 
 
 @router.post("/tools/blog")
-async def tool_blog(
-    data: ToolRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Blog post generator."""
-    system = "Siz professional blogger siz. SEO-optimallashtirilgan blog maqola yozing. Sarlavha, kirish, asosiy qism, xulosa. O'zbek tilida."
-    result = await get_ai_response(
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": data.prompt}],
-        feature="blog",
-    )
-    return {"success": True, "data": {"result": result["content"]}}
+async def tool_blog(data: ToolIn, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if current_user.tokens < 8 and not current_user.isPremium:
+        raise HTTPException(402, "Tokenlar yetarli emas")
+    ctx = data.context or {}
+    result = await ai_service.blog(data.prompt, ctx.get("tone", "professional"), ctx.get("length", "medium"))
+    if current_user.tokens >= 8:
+        current_user.tokens -= 8
+    await db.commit()
+    return {"success": True, "data": {"result": result, "tokensUsed": 8}}
 
 
-@router.post("/tools/social")
-async def tool_social(
-    data: ToolRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Social media post."""
-    system = "Siz SMM mutaxassisiz. Engaging, qisqa ijtimoiy tarmoq posti yozing. Emoji va hashtag ishlating. O'zbek tilida."
-    result = await get_ai_response(
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": data.prompt}],
-        feature="social",
-    )
-    return {"success": True, "data": {"result": result["content"]}}
+@router.post("/tools/resume")
+async def tool_resume(data: ToolIn, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if current_user.tokens < 10 and not current_user.isPremium:
+        raise HTTPException(402, "Tokenlar yetarli emas")
+    result = await ai_service.resume(data.prompt)
+    if current_user.tokens >= 10:
+        current_user.tokens -= 10
+    await db.commit()
+    return {"success": True, "data": {"result": result, "tokensUsed": 10}}
 
 
-@router.post("/tools/email")
-async def tool_email(
-    data: ToolRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Email generator."""
-    system = "Siz professional email yozuvchi siz. Professional, qisqa email yozing. O'zbek tilida."
-    result = await get_ai_response(
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": data.prompt}],
-        feature="email",
-    )
-    return {"success": True, "data": {"result": result["content"]}}
+@router.post("/tools/cover-letter")
+async def tool_cover_letter(data: ToolIn, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if current_user.tokens < 5 and not current_user.isPremium:
+        raise HTTPException(402, "Tokenlar yetarli emas")
+    messages = [
+        {"role": "system", "content": "Siz HR mutaxassisiz. Professional cover letter yozing."},
+        {"role": "user", "content": data.prompt},
+    ]
+    result = await ai_service.chat(messages, max_tokens=1500)
+    if current_user.tokens >= 5:
+        current_user.tokens -= 5
+    await db.commit()
+    return {"success": True, "data": {"result": result, "tokensUsed": 5}}
 
 
 @router.post("/tools/summarize")
-async def tool_summarize(
-    data: dict,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Text summarizer."""
-    text = data.get("text", "")
-    system = "Siz matn tahlilchisiz. Matnni qisqacha, asosiy fikrlarni saqlagan holda umumlashtiring. O'zbek tilida."
-    result = await get_ai_response(
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": text}],
-        feature="summarize",
-    )
-    return {"success": True, "data": {"result": result["content"]}}
+async def tool_summarize(data: ToolIn, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if current_user.tokens < 3 and not current_user.isPremium:
+        raise HTTPException(402, "Tokenlar yetarli emas")
+    ctx = data.context or {}
+    result = await ai_service.summarize(data.prompt, ctx.get("maxWords", 200))
+    if current_user.tokens >= 3:
+        current_user.tokens -= 3
+    await db.commit()
+    return {"success": True, "data": {"result": result, "tokensUsed": 3}}
 
 
 @router.post("/tools/pitch")
-async def tool_pitch(
-    data: ToolRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Startup pitch generator."""
-    system = "Siz pitch deck ekspertisiz. Investorlarga mo'ljallangan 5 daqiqalik pitch yarating: Muammo, Yechim, Bozor, Biznes-model, Jamoa, So'rov. O'zbek tilida."
-    result = await get_ai_response(
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": data.prompt}],
-        feature="pitch",
+async def tool_pitch(data: ToolIn, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if current_user.tokens < 15 and not current_user.isPremium:
+        raise HTTPException(402, "Tokenlar yetarli emas")
+    ctx = data.context or {}
+    result = await ai_service.pitch(data.prompt, ctx.get("audience", "investors"))
+    if current_user.tokens >= 15:
+        current_user.tokens -= 15
+    await db.commit()
+    return {"success": True, "data": {"result": result, "tokensUsed": 15}}
+
+
+@router.post("/tools/{tool_name}")
+async def generic_tool(tool_name: str, data: ToolIn, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Generic tool handler for remaining AI tools."""
+    prompts = {
+        "social": "Ijtimoiy tarmoq uchun qisqa, jozibali post yozing.",
+        "email": "Professional email yozing.",
+        "market-research": "Bozor tadqiqoti o'tkazing.",
+        "financial-model": "Moliyaviy model yarating.",
+        "legal": "Yuridik maslahat bering (umumiy ma'lumot).",
+        "brand-name": "Brend nomlari taklif qiling.",
+        "logo": "Logotip g'oyasini tasvirlab bering.",
+        "code-review": "Kodni ko'rib chiqing va tavsiyalar bering.",
+    }
+    if tool_name not in prompts:
+        raise HTTPException(404, "Vositа topilmadi")
+    if current_user.tokens < 5 and not current_user.isPremium:
+        raise HTTPException(402, "Tokenlar yetarli emas")
+    messages = [
+        {"role": "system", "content": prompts[tool_name]},
+        {"role": "user", "content": data.prompt},
+    ]
+    result = await ai_service.chat(messages, max_tokens=2000)
+    if current_user.tokens >= 5:
+        current_user.tokens -= 5
+    await db.commit()
+    return {"success": True, "data": {"result": result, "tokensUsed": 5}}
+
+
+@router.get("/conversations")
+async def list_conversations(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    res = await db.execute(
+        select(AIConversation).where(AIConversation.userId == current_user.id).order_by(AIConversation.updatedAt.desc()).limit(50)
     )
-    return {"success": True, "data": {"result": result["content"]}}
+    convs = res.scalars().all()
+    return {"success": True, "data": [c.to_dict() for c in convs]}
 
 
-@router.post("/tools/market-research")
-async def tool_market_research(
-    data: ToolRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Market research."""
-    system = "Siz market analitik siz. Bozor tadqiqoti o'tkazing: hajmi, tendensiyalar, raqobatchilar, imkoniyatlar. O'zbek va Markaziy Osiyo bozoriga e'tibor bering."
-    result = await get_ai_response(
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": data.prompt}],
-        feature="market-research",
+@router.get("/conversations/{conv_id}")
+async def get_conversation(conv_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    res = await db.execute(
+        select(AIConversation).where(AIConversation.id == conv_id, AIConversation.userId == current_user.id)
     )
-    return {"success": True, "data": {"result": result["content"]}}
+    conv = res.scalar_one_or_none()
+    if not conv:
+        raise HTTPException(404, "Suhbat topilmadi")
+    return {"success": True, "data": conv.to_dict(include_messages=True)}
 
 
-@router.post("/tools/financial-model")
-async def tool_financial_model(
-    data: ToolRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Financial model."""
-    system = "Siz moliyaviy tahlilchisiz. 3 yillik moliyaviy model yarating: revenue, costs, profit, cash flow. O'zbek tilida."
-    result = await get_ai_response(
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": data.prompt}],
-        feature="financial-model",
+@router.delete("/conversations/{conv_id}")
+async def delete_conversation(conv_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    res = await db.execute(
+        select(AIConversation).where(AIConversation.id == conv_id, AIConversation.userId == current_user.id)
     )
-    return {"success": True, "data": {"result": result["content"]}}
-
-
-@router.post("/tools/legal")
-async def tool_legal(
-    data: ToolRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Legal document generator."""
-    system = "Siz yurist maslahatchisiz. O'zbekiston qonunchiligiga muvofiq hujjatlar tayyorlang. FAQAT UMUMIY MASLAHAT bering, professional yurist bilan tekshiring."
-    result = await get_ai_response(
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": data.prompt}],
-        feature="legal",
-    )
-    return {"success": True, "data": {"result": result["content"]}}
-
-
-@router.post("/tools/brand-name")
-async def tool_brand_name(
-    data: ToolRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Brand name generator."""
-    system = "Siz brending mutaxassisiz. 10 ta kreativ, esda qolarli brend nomi taklif qiling. Domen, trademark tekshiruvi bilan."
-    result = await get_ai_response(
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": data.prompt}],
-        feature="brand-name",
-    )
-    return {"success": True, "data": {"result": result["content"]}}
-
-
-@router.post("/tools/logo")
-async def tool_logo(
-    data: ToolRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Logo concept generator."""
-    system = "Siz logo dizayner siz. Logo konsepsiyasi va tavsifini yarating. Ranglar, shakl, ma'no. O'zbek tilida."
-    result = await get_ai_response(
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": data.prompt}],
-        feature="logo",
-    )
-    return {"success": True, "data": {"result": result["content"]}}
-
-
-@router.post("/tools/analyze-image")
-async def tool_analyze_image(
-    data: dict,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Analyze image via AI."""
-    # In production, use vision model
-    return {"success": True, "data": {"result": "Image analysis coming soon"}}
-
-
-# ============ HISTORY & USAGE ============
-
-@router.get("/history")
-async def get_history(
-    limit: int = 50,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Get AI chat history."""
-    result = await db.execute(
-        select(AIChat)
-        .where(AIChat.user_id == user.id)
-        .order_by(AIChat.updated_at.desc())
-        .limit(limit)
-    )
-    chats = result.scalars().all()
-    return {"success": True, "data": [c.to_dict() for c in chats]}
-
-
-@router.get("/models")
-async def get_models():
-    """Get available AI models."""
-    return {"success": True, "data": AI_MODELS}
+    conv = res.scalar_one_or_none()
+    if conv:
+        await db.delete(conv)
+        await db.commit()
+    return {"success": True, "data": {"deleted": True}}
 
 
 @router.get("/usage")
-async def get_usage(
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Get user AI usage stats."""
-    today = datetime.utcnow().date()
-    month_start = today.replace(day=1)
-
-    used_today = await db.execute(
-        select(func.count(AIMessage.id))
-        .where(AIMessage.user_id == user.id)
-        .where(func.date(AIMessage.created_at) == today)
+async def usage_stats(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    res = await db.execute(
+        select(AIConversation).where(AIConversation.userId == current_user.id)
     )
-    used_month = await db.execute(
-        select(func.count(AIMessage.id))
-        .where(AIMessage.user_id == user.id)
-        .where(AIMessage.created_at >= month_start)
-    )
-
-    limit = settings.AI_DAILY_LIMIT_PRO if user.is_premium else settings.AI_DAILY_LIMIT_FREE
+    convs = res.scalars().all()
     return {
         "success": True,
         "data": {
-            "today": used_today.scalar() or 0,
-            "month": used_month.scalar() or 0,
-            "limit": limit,
-            "remaining": max(0, limit - (used_today.scalar() or 0)),
-            "isPremium": user.is_premium,
+            "totalConversations": len(convs),
+            "tokensLeft": current_user.tokens,
+            "isPremium": current_user.isPremium,
+            "dailyLimit": settings.PREMIUM_AI_REQUESTS_PER_DAY if current_user.isPremium else settings.FREE_AI_REQUESTS_PER_DAY,
         }
     }
