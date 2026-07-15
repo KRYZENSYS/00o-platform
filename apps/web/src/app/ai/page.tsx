@@ -1,215 +1,263 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { Send, Sparkles, Loader2, Bot, User as UserIcon, Trash2, Plus, ChevronDown } from 'lucide-react';
+import { Send, Sparkles, Lightbulb, Code, FileText, Languages, BookOpen, Mail, TrendingUp, Briefcase, Crown, Loader2, Plus, History, Trash2, Image, Wand2 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Avatar } from '@/components/ui/avatar';
+import { Input, Textarea, Label } from '@/components/ui/input';
 import api from '@/lib/api';
-import { cn, formatRelative } from '@/lib/utils';
+import { useAuthStore } from '@/store/auth';
+import { formatRelative, cn } from '@/lib/utils';
 
-interface Message {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  model?: string;
-  tokensUsed?: number;
-  createdAt?: string;
-}
-
-const SUGGESTIONS = [
-  { i: '💡', t: 'Menga AI startup g\'oya ber', p: 'O\'zbekiston bozorida AI startup g\'oya taklif qil. Byudjet 100M so\'m.' },
-  { i: '📊', t: 'Biznes-plan tuz', p: 'EdTech platforma uchun batafsil biznes-plan yoz.' },
-  { i: '💻', t: 'React komponent yoz', p: 'Next.js 15 da to\'liq responsive navbar komponent yozib ber.' },
-  { i: '📝', t: 'Rezyume yoz', p: 'Frontend dasturchi uchun professional rezyume yoz. 3 yil tajriba.' },
-  { i: '🌐', t: 'Tarjima qil', p: 'Quyidagi matnni ingliz tiliga tarjima qil: ...' },
-  { i: '✍️', t: 'Blog maqola', p: 'AI va kelajak haqida SEO-optimallashtirilgan blog maqola yoz.' },
-  { i: '🎯', t: 'Pitch deck', p: 'Investorlarga mo\'ljallangan 5 daqiqalik pitch yarating.' },
-  { i: '📈', t: 'Marketing strategiya', p: 'Yangi SaaS mahsulot uchun marketing strategiyasi.' },
+const TOOLS = [
+  { id: 'startup-idea', l: '💡 Startup g\'oya', i: Lightbulb, cost: 10, desc: 'AI sizga 3 ta startup g\'oya taklif qiladi' },
+  { id: 'business-plan', l: '📊 Biznes-plan', i: TrendingUp, cost: 20, desc: 'To\'liq biznes-reja yarating' },
+  { id: 'code', l: '💻 Kod yozish', i: Code, cost: 5, desc: 'Har qanday tilda kod' },
+  { id: 'translate', l: '🌐 Tarjima', i: Languages, cost: 2, desc: '50+ tilga tarjima' },
+  { id: 'resume', l: '📝 Rezyume', i: FileText, cost: 10, desc: 'HR darajasidagi CV' },
+  { id: 'blog', l: '✍️ Blog', i: BookOpen, cost: 8, desc: 'SEO maqola' },
+  { id: 'email', l: '📧 Email', i: Mail, cost: 5, desc: 'Professional xat' },
+  { id: 'pitch', l: '🎤 Pitch', i: Briefcase, cost: 15, desc: 'Investorlarga taqdimot' },
+  { id: 'logo', l: '🎨 Logo g\'oya', i: Image, cost: 5, desc: 'Logotip konsepti' },
+  { id: 'brand-name', l: '✨ Brend nomi', i: Wand2, cost: 5, desc: 'Kreativ nomlar' },
 ];
 
-export default function AIChatPage() {
-  const [messages, setMessages] = useState<Message[]>([]);
+const MODELS = [
+  { id: 'llama-3.3-70b-versatile', l: '🦙 Llama 3.3 70B', desc: 'Eng kuchli' },
+  { id: 'qwen/qwen-2.5-coder-32b', l: '💻 Qwen Coder 32B', desc: 'Kod uchun' },
+  { id: 'llama-3.1-8b-instant', l: '⚡ Llama 3.1 8B', desc: 'Tez' },
+  { id: 'deepseek-r1-distill-llama-70b', l: '🧠 DeepSeek R1 70B', desc: 'Mantiq' },
+];
+
+export default function AIPage() {
+  const { user } = useAuthStore();
+  const [mode, setMode] = useState<'chat' | 'tools'>('chat');
+  const [tool, setTool] = useState<string | null>(null);
+  const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
   const [model, setModel] = useState('llama-3.3-70b-versatile');
-  const [showModels, setShowModels] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [conversations, setConversations] = useState<any[]>([]);
+  const [activeConv, setActiveConv] = useState<number | null>(null);
+  const [showSidebar, setShowSidebar] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const MODELS = [
-    { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', desc: 'Tez va kuchli' },
-    { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B', desc: 'Eng tez' },
-    { id: 'qwen-2.5-coder-32b', name: 'Qwen Coder 32B', desc: 'Kod uchun' },
-    { id: 'deepseek-r1-distill-llama-70b', name: 'DeepSeek R1', desc: 'Mantiqiy' },
-    { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', desc: 'Multilingual' },
-  ];
+  useEffect(() => {
+    if (mode === 'chat') loadConversations();
+  }, [mode]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages]);
 
-  const send = async (text?: string) => {
-    const content = (text ?? input).trim();
-    if (!content || loading) return;
+  const loadConversations = async () => {
+    try {
+      const res = await api.ai.conversations();
+      setConversations(res.data || []);
+    } catch (e) { /* ignore */ }
+  };
 
-    const userMsg: Message = { id: Date.now().toString(), role: 'user', content, createdAt: new Date().toISOString() };
-    setMessages((m) => [...m, userMsg]);
+  const send = async () => {
+    if (!input.trim() || loading) return;
+    const userMsg = { role: 'user' as const, content: input };
+    setMessages(m => [...m, userMsg]);
+    const prompt = input;
     setInput('');
     setLoading(true);
-
     try {
-      const res = await api.ai.chat([{ role: 'user', content }], 'chat', model);
-      const aiMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: res.data?.content || 'Xatolik yuz berdi',
-        model: res.data?.model,
-        tokensUsed: res.data?.tokens,
-        createdAt: new Date().toISOString(),
-      };
-      setMessages((m) => [...m, aiMsg]);
-    } catch (err: any) {
-      setMessages((m) => [...m, {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: '⚠️ ' + (err.response?.data?.message || err.message || 'Xatolik yuz berdi'),
-        createdAt: new Date().toISOString(),
-      }]);
+      const res = await api.ai.chat([{ role: 'user', content: prompt }], 'chat', model);
+      setMessages(m => [...m, { role: 'assistant', content: res.data.message }]);
+      loadConversations();
+    } catch (e: any) {
+      setMessages(m => [...m, { role: 'assistant', content: '❌ Xatolik: ' + (e.response?.data?.message || e.message) }]);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleKey = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      send();
+  const useTool = async (toolId: string) => {
+    if (!input.trim() || loading) return;
+    setTool(toolId);
+    setLoading(true);
+    try {
+      const res = await (api.ai.tools as any)[toolId.replace(/-/g, '')]({ prompt: input });
+      setMessages(m => [...m, { role: 'user', content: `🔧 ${TOOLS.find(t => t.id === toolId)?.l}: ${input}` }, { role: 'assistant', content: res.data.result }]);
+      setInput('');
+    } catch (e: any) {
+      setMessages(m => [...m, { role: 'assistant', content: '❌ ' + (e.response?.data?.message || e.message) }]);
+    } finally {
+      setLoading(false);
+      setTool(null);
     }
   };
 
-  const currentModel = MODELS.find(m => m.id === model) || MODELS[0];
+  const newChat = () => {
+    setMessages([]);
+    setActiveConv(null);
+  };
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950 md:px-6">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-pink-500 text-white">
-            <Sparkles className="h-4 w-4" />
+    <div className="flex h-[calc(100vh-4rem)]">
+      {/* Sidebar */}
+      <div className={cn('w-72 border-r border-slate-200 dark:border-slate-800', showSidebar ? 'block' : 'hidden md:block')}>
+        <div className="flex h-full flex-col">
+          <div className="border-b border-slate-200 p-4 dark:border-slate-800">
+            <Button onClick={newChat} variant="gradient" fullWidth><Plus className="h-4 w-4" /> Yangi chat</Button>
           </div>
-          <div>
-            <h1 className="text-lg font-bold">AI Chat</h1>
-            <p className="text-xs text-slate-500">GroqCloud bilan ishlaydi</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <button onClick={() => setShowModels(!showModels)} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-medium hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800">
-              <Sparkles className="h-3.5 w-3.5 text-violet-500" /> {currentModel.name}
-              <ChevronDown className="h-3 w-3" />
-            </button>
-            {showModels && (
-              <div className="absolute right-0 top-10 z-10 w-72 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-800 dark:bg-slate-950">
-                {MODELS.map((m) => (
-                  <button key={m.id} onClick={() => { setModel(m.id); setShowModels(false); }} className={cn('w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-900', model === m.id && 'bg-violet-500/10')}>
-                    <div className="font-semibold">{m.name}</div>
-                    <div className="text-xs text-slate-500">{m.desc}</div>
+          <div className="flex-1 overflow-y-auto p-3">
+            {conversations.length === 0 ? (
+              <p className="py-8 text-center text-xs text-slate-500">Hozircha suhbatlar yo'q</p>
+            ) : (
+              conversations.map((c) => (
+                <div key={c.id} className={cn('group flex cursor-pointer items-center gap-2 rounded-xl p-2 text-sm transition', activeConv === c.id ? 'bg-violet-500/10' : 'hover:bg-slate-100 dark:hover:bg-slate-900')}>
+                  <History className="h-3.5 w-3.5 shrink-0" />
+                  <span className="flex-1 truncate text-xs">{c.title}</span>
+                  <button onClick={async (e) => { e.stopPropagation(); await api.ai.deleteConversation(c.id); loadConversations(); }} className="opacity-0 group-hover:opacity-100">
+                    <Trash2 className="h-3 w-3 text-red-500" />
                   </button>
-                ))}
-              </div>
+                </div>
+              ))
             )}
           </div>
-          {messages.length > 0 && (
-            <Button variant="ghost" size="icon" onClick={() => setMessages([])}>
-              <Trash2 className="h-4 w-4" />
-            </Button>
+          {user && (
+            <div className="border-t border-slate-200 p-3 dark:border-slate-800">
+              <div className="rounded-xl bg-gradient-to-br from-violet-500/10 to-pink-500/10 p-3">
+                <div className="mb-1 flex items-center gap-1 text-xs font-semibold">
+                  🪙 Tokenlar: {user.tokens || 0}
+                </div>
+                {!user.isPremium && (
+                  <Button size="sm" variant="gradient" fullWidth className="mt-2">
+                    <Crown className="h-3 w-3" /> Pro ga o'tish
+                  </Button>
+                )}
+              </div>
+            </div>
           )}
         </div>
       </div>
 
-      {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6 md:px-6">
-        {messages.length === 0 ? (
-          <div className="mx-auto max-w-3xl space-y-6">
-            <div className="py-12 text-center">
-              <div className="mb-4 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-pink-500 to-orange-500 text-3xl">🤖</div>
-              <h2 className="mb-2 text-2xl font-bold">Salom! Men sizning AI yordamchingizman</h2>
-              <p className="text-slate-500">G'oyalar, kod, biznes-plan, kontent - hammasi uchun</p>
-            </div>
+      {/* Main */}
+      <div className="flex flex-1 flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowSidebar(!showSidebar)} className="md:hidden">≡</button>
+            <Sparkles className="h-5 w-5 text-violet-500" />
             <div>
-              <h3 className="mb-3 text-sm font-semibold text-slate-500">Boshlang'ich savollar:</h3>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {SUGGESTIONS.map((s) => (
-                  <button key={s.t} onClick={() => send(s.p)} className="group rounded-2xl border border-slate-200 bg-white p-4 text-left transition-all hover:border-violet-500/50 hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
-                    <div className="mb-1 text-2xl">{s.i}</div>
-                    <div className="text-sm font-semibold">{s.t}</div>
-                    <div className="mt-1 text-xs text-slate-500 line-clamp-1">{s.p}</div>
-                  </button>
-                ))}
-              </div>
+              <h1 className="text-base font-bold">AI Yordamchi</h1>
+              <p className="text-xs text-slate-500">GroqCloud · Llama 3.3 70B</p>
             </div>
           </div>
-        ) : (
-          <div className="mx-auto max-w-3xl space-y-4">
-            {messages.map((m) => (
-              <div key={m.id} className={cn('flex gap-3', m.role === 'user' ? 'justify-end' : 'justify-start')}>
-                {m.role === 'assistant' && (
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-pink-500 text-white">
-                    <Sparkles className="h-4 w-4" />
+          <div className="flex items-center gap-2">
+            <select value={model} onChange={(e) => setModel(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-800 dark:bg-slate-900">
+              {MODELS.map(m => <option key={m.id} value={m.id}>{m.l}</option>)}
+            </select>
+            <div className="flex rounded-lg border border-slate-200 p-0.5 dark:border-slate-800">
+              <button onClick={() => setMode('chat')} className={cn('rounded-md px-2 py-1 text-xs', mode === 'chat' ? 'bg-violet-500 text-white' : '')}>💬 Chat</button>
+              <button onClick={() => setMode('tools')} className={cn('rounded-md px-2 py-1 text-xs', mode === 'tools' ? 'bg-violet-500 text-white' : '')}>🛠 Vositalar</button>
+            </div>
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
+          {messages.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-center">
+              <div>
+                <div className="mb-3 text-5xl">🤖</div>
+                <h2 className="mb-1 text-xl font-bold">Salom, {user?.firstName || 'foydalanuvchi'}!</h2>
+                <p className="mb-6 text-sm text-slate-500">Sizga qanday yordam bera olaman?</p>
+                {mode === 'chat' ? (
+                  <div className="mx-auto grid max-w-md grid-cols-2 gap-2">
+                    {['💡 Startup g\'oya ber', '📊 Marketing strategiya', '💻 Python kod yoz', '📝 Rezyume tuzib ber'].map((s) => (
+                      <button key={s} onClick={() => setInput(s)} className="card p-3 text-left text-xs transition hover:shadow">{s}</button>
+                    ))}
                   </div>
-                )}
-                <div className={cn('max-w-[85%]', m.role === 'user' ? 'order-1' : '')}>
-                  <div className={cn('rounded-2xl px-4 py-3', m.role === 'user' ? 'bg-gradient-to-r from-violet-500 to-pink-500 text-white' : 'border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900')}>
-                    <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</div>
-                  </div>
-                  <div className="mt-1 flex items-center gap-2 px-1 text-[10px] text-slate-500">
-                    {m.model && <span>• {m.model}</span>}
-                    {m.tokensUsed !== undefined && <span>• {m.tokensUsed} tokens</span>}
-                    {m.createdAt && <span>• {formatRelative(m.createdAt)}</span>}
-                  </div>
-                </div>
-                {m.role === 'user' && (
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-200 dark:bg-slate-800">
-                    <UserIcon className="h-4 w-4" />
+                ) : (
+                  <div className="mx-auto grid max-w-2xl grid-cols-2 gap-2 md:grid-cols-3">
+                    {TOOLS.map((t) => (
+                      <button key={t.id} onClick={() => { setTool(t.id); }} className="card p-3 text-left text-xs transition hover:shadow-md">
+                        <p className="mb-1 font-semibold">{t.l}</p>
+                        <p className="text-[10px] text-slate-500">{t.desc}</p>
+                        <p className="mt-1 text-[10px] font-bold text-violet-500">{t.cost} 🪙</p>
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
-            ))}
-            {loading && (
-              <div className="flex gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-pink-500 text-white">
-                  <Sparkles className="h-4 w-4" />
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
-                  <div className="flex items-center gap-2 text-sm text-slate-500">
-                    <Loader2 className="h-3 w-3 animate-spin" /> Yozayapman...
+            </div>
+          ) : (
+            <div className="mx-auto max-w-3xl space-y-4">
+              {messages.map((m, i) => (
+                <div key={i} className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}>
+                  <div className={cn('max-w-[85%] rounded-2xl px-4 py-3', m.role === 'user' ? 'bg-gradient-to-r from-violet-500 to-pink-500 text-white' : 'border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900')}>
+                    {m.role === 'assistant' ? (
+                      <div className="prose prose-sm max-w-none dark:prose-invert" dangerouslySetInnerHTML={{ __html: formatMarkdown(m.content) }} />
+                    ) : (
+                      <p className="whitespace-pre-wrap text-sm">{m.content}</p>
+                    )}
                   </div>
                 </div>
+              ))}
+              {loading && (
+                <div className="flex justify-start">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+                    <Loader2 className="h-4 w-4 animate-spin text-violet-500" />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Input */}
+        <div className="border-t border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
+          <div className="mx-auto max-w-3xl">
+            {mode === 'tools' && tool && (
+              <div className="mb-2 flex items-center gap-2 text-xs">
+                <span>Tanlangan:</span>
+                <span className="rounded-full bg-violet-500/10 px-2 py-0.5 font-semibold text-violet-500">{TOOLS.find(t => t.id === tool)?.l}</span>
+                <button onClick={() => setTool(null)} className="text-slate-500">×</button>
               </div>
             )}
+            <div className="flex items-end gap-2">
+              <Textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); mode === 'chat' ? send() : (tool ? useTool(tool) : null); }
+                }}
+                placeholder={mode === 'chat' ? 'Savolingizni yozing...' : tool ? `${TOOLS.find(t => t.id === tool)?.l} uchun so'rov...` : 'Avval vositani tanlang'}
+                rows={1}
+                disabled={loading}
+                className="min-h-[44px] resize-none"
+              />
+              <Button onClick={mode === 'chat' ? send : () => tool && useTool(tool)} variant="gradient" size="icon" disabled={!input.trim() || loading || (mode === 'tools' && !tool)}>
+                <Send className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
-        )}
-      </div>
-
-      {/* Input */}
-      <div className="border-t border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950 md:p-6">
-        <div className="mx-auto max-w-3xl">
-          <div className="relative rounded-2xl border border-slate-200 bg-slate-50 focus-within:border-violet-500 dark:border-slate-800 dark:bg-slate-900">
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKey}
-              placeholder="Savolingizni yozing... (Enter - yuborish, Shift+Enter - yangi qator)"
-              rows={1}
-              className="w-full resize-none rounded-2xl bg-transparent px-4 py-3 pr-12 text-sm outline-none placeholder:text-slate-400"
-            />
-            <Button onClick={() => send()} disabled={!input.trim() || loading} size="icon" variant="gradient" className="absolute bottom-2 right-2">
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            </Button>
-          </div>
-          <p className="mt-2 text-center text-[10px] text-slate-500">
-            AI xatolari bo'lishi mumkin. Muhim ma'lumotlarni tekshiring.
-          </p>
         </div>
       </div>
     </div>
   );
+}
+
+// Simple markdown formatter
+function formatMarkdown(text: string): string {
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/__(.*?)__/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/`(.*?)`/g, '<code>$1</code>')
+    .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+    .replace(/^\* (.*$)/gim, '<li>$1</li>')
+    .replace(/^- (.*$)/gim, '<li>$1</li>')
+    .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/^(?!<[a-z])/gim, '<p>')
+    .replace(/$(?![<a-z])/gim, '</p>');
 }
