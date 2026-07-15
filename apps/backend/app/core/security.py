@@ -1,100 +1,59 @@
-"""Security utilities: JWT, password hashing, encryption."""
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
-from jose import JWTError, jwt
-from passlib.context import CryptContext
+"""Security utilities: JWT, password hashing."""
+from datetime import datetime, timedelta, timezone
+from typing import Any, Optional
 import secrets
 import hashlib
+
+from jose import jwt, JWTError
+from passlib.context import CryptContext
+from fastapi import HTTPException, status
 import pyotp
-import qrcode
-from io import BytesIO
-import base64
 
 from app.core.config import settings
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt", "argon2"], deprecated="auto", bcrypt__rounds=settings.BCRYPT_ROUNDS)
 
 
 def hash_password(password: str) -> str:
-    """Hash password using bcrypt."""
+    """Hash password."""
     return pwd_context.hash(password)
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    """Verify password against hash."""
+    """Verify password."""
     try:
         return pwd_context.verify(plain, hashed)
     except Exception:
         return False
 
 
-def create_access_token(subject: str | Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create JWT access token."""
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-
-    if isinstance(subject, dict):
-        to_encode = subject.copy()
-    else:
-        to_encode = {"sub": str(subject)}
-
-    to_encode.update({
-        "exp": expire,
-        "iat": datetime.utcnow(),
-        "type": "access",
-        "jti": secrets.token_hex(16),
-    })
-
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.JWT_ACCESS_EXPIRE_MINUTES))
+    to_encode.update({"exp": expire, "iat": datetime.now(timezone.utc), "type": "access"})
+    return jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
-def create_refresh_token(subject: str) -> str:
+def create_refresh_token(data: dict) -> str:
     """Create JWT refresh token."""
-    expire = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode = {
-        "sub": str(subject),
-        "exp": expire,
-        "iat": datetime.utcnow(),
-        "type": "refresh",
-        "jti": secrets.token_hex(16),
-    }
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_EXPIRE_DAYS)
+    to_encode.update({"exp": expire, "iat": datetime.now(timezone.utc), "type": "refresh"})
+    return jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
-def decode_token(token: str) -> Optional[Dict[str, Any]]:
-    """Decode and verify JWT token."""
+def decode_token(token: str) -> dict:
+    """Decode JWT token."""
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
         return payload
-    except JWTError:
-        return None
+    except JWTError as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
 
 
-def verify_access_token(token: str) -> Optional[Dict[str, Any]]:
-    """Verify access token and return payload."""
-    payload = decode_token(token)
-    if not payload:
-        return None
-    if payload.get("type") != "access":
-        return None
-    return payload
-
-
-def verify_refresh_token(token: str) -> Optional[Dict[str, Any]]:
-    """Verify refresh token and return payload."""
-    payload = decode_token(token)
-    if not payload:
-        return None
-    if payload.get("type") != "refresh":
-        return None
-    return payload
-
-
-def generate_token(length: int = 32) -> str:
-    """Generate secure random token."""
+def generate_random_token(length: int = 32) -> str:
+    """Generate random token."""
     return secrets.token_urlsafe(length)
 
 
@@ -103,44 +62,54 @@ def generate_otp(length: int = 6) -> str:
     return ''.join([str(secrets.randbelow(10)) for _ in range(length)])
 
 
-def hash_token(token: str) -> str:
-    """Hash token for storage."""
-    return hashlib.sha256(token.encode()).hexdigest()
-
-
 def generate_2fa_secret() -> str:
-    """Generate TOTP secret."""
+    """Generate 2FA secret."""
     return pyotp.random_base32()
 
 
 def verify_2fa_code(secret: str, code: str) -> bool:
-    """Verify TOTP code."""
+    """Verify 2FA TOTP code."""
     totp = pyotp.TOTP(secret)
     return totp.verify(code, valid_window=1)
 
 
-def get_2fa_qr_code(user_email: str, secret: str) -> str:
-    """Generate QR code for 2FA setup."""
-    totp = pyotp.TOTP(secret)
-    uri = totp.provisioning_uri(name=user_email, issuer_name="00o.uz")
-    img = qrcode.make(uri)
-    buffer = BytesIO()
-    img.save(buffer, format="PNG")
-    return base64.b64encode(buffer.getvalue()).decode()
+def get_2fa_uri(secret: str, username: str) -> str:
+    """Get 2FA provisioning URI."""
+    return pyotp.TOTP(secret).provisioning_uri(name=username, issuer_name="00o.uz")
 
 
-def verify_telegram_auth(data: Dict[str, Any], bot_token: str) -> bool:
-    """Verify Telegram Login Widget data."""
-    check_hash = data.get("hash")
-    if not check_hash:
-        return False
+def verify_telegram_init_data(init_data: str) -> Optional[dict]:
+    """Verify Telegram WebApp initData and extract user info."""
+    try:
+        # Parse initData
+        params = dict(x.split('=', 1) for x in init_data.split('&') if '=' in x)
+        if 'hash' not in params:
+            return None
+        received_hash = params.pop('hash')
 
-    data_check = {k: v for k, v in data.items() if k != "hash"}
-    data_check_arr = [f"{k}={v}" for k, v in sorted(data_check.items())]
-    data_check_string = "\n".join(data_check_arr)
+        # Build data check string
+        data_check = '\n'.join(f"{k}={v}" for k, v in sorted(params.items()))
 
-    import hmac
-    secret_key = hashlib.sha256(bot_token.encode()).digest()
-    hmac_string = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+        # Use TELEGRAM_BOT_TOKEN as secret
+        if not settings.TELEGRAM_BOT_TOKEN:
+            return None
+        secret_key = hashlib.sha256(settings.TELEGRAM_BOT_TOKEN.encode()).digest()
+        computed_hash = hmac.new(secret_key, data_check.encode(), hashlib.sha256).hexdigest()
 
-    return hmac.compare_digest(hmac_string, check_hash)
+        if computed_hash != received_hash:
+            return None
+
+        import json
+        user_data = json.loads(params.get('user', '{}'))
+        return {
+            'id': user_data.get('id'),
+            'first_name': user_data.get('first_name'),
+            'last_name': user_data.get('last_name'),
+            'username': user_data.get('username'),
+            'photo_url': user_data.get('photo_url'),
+        }
+    except Exception:
+        return None
+
+
+import hmac
