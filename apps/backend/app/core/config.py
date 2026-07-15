@@ -1,108 +1,121 @@
-"""
-Configuration module for 00o.uz backend.
-Loads and validates environment variables.
-"""
-from pydantic_settings import BaseSettings
-from typing import List, Optional
-from functools import lru_cache
-import json
+"""Application configuration."""
+from typing import List
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 
 
 class Settings(BaseSettings):
-    """Application settings."""
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # App
     APP_NAME: str = "00o.uz"
+    APP_VERSION: str = "1.0.0"
     APP_ENV: str = "development"
-    APP_DEBUG: bool = True
+    DEBUG: bool = True
     APP_URL: str = "http://localhost:3000"
-    API_URL: str = "http://localhost:8000"
-    SECRET_KEY: str
-    ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    BACKEND_URL: str = "http://localhost:8000"
+    API_V1_PREFIX: str = "/api/v1"
+
+    # Security
+    JWT_SECRET: str = "change-me-in-production-use-openssl-rand-hex-32"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_ACCESS_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
+    JWT_REFRESH_EXPIRE_DAYS: int = 30
+    BCRYPT_ROUNDS: int = 12
 
     # Database
-    DATABASE_URL: str
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/ooouzb"
+    DB_POOL_SIZE: int = 20
+    DB_MAX_OVERFLOW: int = 10
+    DB_ECHO: bool = False
 
     # Redis
-    REDIS_URL: str = "redis://localhost:6379"
-    REDIS_PASSWORD: Optional[str] = None
+    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_CACHE_TTL: int = 3600
 
-    # AI
-    GROQ_API_KEY: str
-    GROQ_API_BASE: str = "https://api.groq.com/openai/v1"
-    AI_DEFAULT_MODEL: str = "llama-3.3-70b-versatile"
-    AI_FALLBACK_MODEL: str = "llama-3.1-8b-instant"
-    AI_MAX_TOKENS: int = 4096
-    AI_TEMPERATURE: float = 0.7
+    # AI (GroqCloud)
+    GROQ_API_KEY: str = ""
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+    GROQ_DEFAULT_MODEL: str = "llama-3.3-70b-versatile"
+    AI_DAILY_LIMIT_FREE: int = 10
+    AI_DAILY_LIMIT_PRO: int = 1000
+    AI_TOKENS_PER_REQUEST: int = 100
 
     # Telegram
-    TELEGRAM_BOT_TOKEN: Optional[str] = None
-    TELEGRAM_BOT_USERNAME: Optional[str] = None
-    TELEGRAM_WEBHOOK_URL: Optional[str] = None
-
-    # OAuth
-    GOOGLE_CLIENT_ID: Optional[str] = None
-    GOOGLE_CLIENT_SECRET: Optional[str] = None
-    GITHUB_CLIENT_ID: Optional[str] = None
-    GITHUB_CLIENT_SECRET: Optional[str] = None
-
-    # Payments
-    CLICK_SERVICE_ID: Optional[str] = None
-    CLICK_MERCHANT_ID: Optional[str] = None
-    CLICK_SECRET_KEY: Optional[str] = None
-    PAYME_MERCHANT_ID: Optional[str] = None
-    PAYME_SECRET_KEY: Optional[str] = None
-    UZUM_MERCHANT_ID: Optional[str] = None
-    UZUM_SECRET_KEY: Optional[str] = None
-
-    # Storage
-    S3_ENDPOINT: Optional[str] = None
-    S3_BUCKET: Optional[str] = None
-    S3_ACCESS_KEY: Optional[str] = None
-    S3_SECRET_KEY: Optional[str] = None
-    S3_REGION: str = "us-east-1"
-    CLOUDINARY_CLOUD_NAME: Optional[str] = None
-    CLOUDINARY_API_KEY: Optional[str] = None
-    CLOUDINARY_API_SECRET: Optional[str] = None
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_WEBAPP_URL: str = ""
+    BOT_API_KEY: str = ""
 
     # Email
-    SENDGRID_API_KEY: Optional[str] = None
-    SMTP_HOST: Optional[str] = None
+    SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
-    SMTP_USER: Optional[str] = None
-    SMTP_PASSWORD: Optional[str] = None
-    FROM_EMAIL: str = "noreply@00o.uz"
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = "noreply@00o.uz"
+    SENDGRID_API_KEY: str = ""
 
     # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:3000"]
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:3000", "http://localhost:3001",
+        "https://00o.uz", "https://www.00o.uz",
+        "https://app.00o.uz", "https://admin.00o.uz",
+    ]
+    ALLOWED_HOSTS: List[str] = ["*"]
 
-    # Rate Limiting
+    # File uploads
+    UPLOAD_DIR: str = "./uploads"
+    MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB
+    ALLOWED_IMAGE_TYPES: List[str] = ["image/jpeg", "image/png", "image/webp", "image/gif"]
+    ALLOWED_FILE_TYPES: List[str] = [
+        "application/pdf", "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "text/plain", "text/csv",
+    ]
+
+    # Storage
+    STORAGE_TYPE: str = "local"  # local | s3 | r2
+    AWS_ACCESS_KEY: str = ""
+    AWS_SECRET_KEY: str = ""
+    AWS_BUCKET: str = ""
+    AWS_REGION: str = "us-east-1"
+    R2_ACCOUNT_ID: str = ""
+    R2_ACCESS_KEY: str = ""
+    R2_SECRET_KEY: str = ""
+    R2_BUCKET: str = ""
+
+    # Payments
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+    PAYME_MERCHANT_ID: str = ""
+    PAYME_SECRET_KEY: str = ""
+    CLICK_MERCHANT_ID: str = ""
+    CLICK_SERVICE_ID: str = ""
+    CLICK_SECRET_KEY: str = ""
+
+    # Subscriptions / Tokens
+    TOKEN_PRICE: int = 100  # 100 UZS per 1 token
+    PRO_PRICE: int = 99000
+    BUSINESS_PRICE: int = 299000
+    REFERRAL_BONUS: int = 100
+    PREMIUM_REFERRAL_BONUS: int = 500
+
+    # Rate limiting
     RATE_LIMIT_PER_MINUTE: int = 60
     RATE_LIMIT_PER_HOUR: int = 1000
+    RATE_LIMIT_LOGIN_PER_HOUR: int = 5
+    RATE_LIMIT_REGISTER_PER_DAY: int = 3
 
     # Monitoring
-    SENTRY_DSN: Optional[str] = None
-    LOG_LEVEL: str = "INFO"
+    SENTRY_DSN: str = ""
+    POSTHOG_KEY: str = ""
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
-
-    def __init__(self, **data):
-        super().__init__(**data)
-        if isinstance(self.CORS_ORIGINS, str):
-            try:
-                self.CORS_ORIGINS = json.loads(self.CORS_ORIGINS)
-            except Exception:
-                self.CORS_ORIGINS = [o.strip() for o in self.CORS_ORIGINS.split(",")]
+    # Security flags
+    ENABLE_2FA: bool = True
+    ENABLE_EMAIL_VERIFICATION: bool = True
+    ENABLE_TELEGRAM_AUTH: bool = True
+    ENABLE_REGISTRATION: bool = True
 
 
-@lru_cache()
-def get_settings() -> Settings:
-    """Get cached settings instance."""
-    return Settings()
-
-
-settings = get_settings()
+settings = Settings()
