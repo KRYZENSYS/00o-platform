@@ -1,0 +1,264 @@
+// 00o.uz Prisma schema
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String?
+  username      String?   @unique
+  fullName      String?
+  avatarUrl     String?
+  bio           String?
+  role          UserRole  @default(USER)
+  isPremium     Boolean   @default(false)
+  isVerified    Boolean   @default(false)
+  telegramId    String?   @unique
+  language      String    @default("uz")
+  tokenBalance  Int       @default(100)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
+
+  // Relations
+  startups      Startup[]
+  posts         Post[]
+  comments      Comment[]
+  likes         Like[]
+  sentMessages  Message[]  @relation("SentMessages")
+  chatMembers   ChatMember[]
+  notifications Notification[]
+  transactions  Transaction[]
+  subscription  Subscription?
+  referralsGiven Referral[]   @relation("Referrer")
+  referralsGot   Referral[]   @relation("Referred")
+
+  @@index([email])
+  @@index([telegramId])
+  @@map("users")
+}
+
+enum UserRole {
+  USER
+  PREMIUM
+  ADMIN
+}
+
+model Startup {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  logoUrl     String?
+  websiteUrl  String?
+  industry    String?
+  stage       String?
+  fundingGoal BigInt?
+  raised      BigInt  @default(0)
+  ownerId     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  members     StartupMember[]
+
+  @@index([ownerId])
+  @@index([slug])
+  @@map("startups")
+}
+
+model StartupMember {
+  id        String   @id @default(cuid())
+  startupId String
+  userId    String
+  role      String   @default("member")
+  joinedAt  DateTime @default(now())
+
+  startup   Startup  @relation(fields: [startupId], references: [id], onDelete: Cascade)
+
+  @@unique([startupId, userId])
+  @@map("startup_members")
+}
+
+model Post {
+  id        String   @id @default(cuid())
+  authorId  String
+  content   String
+  images    String[] @default([])
+  type      PostType  @default(GENERAL)
+  likesCount Int     @default(0)
+  commentsCount Int  @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  comments  Comment[]
+  likes     Like[]
+
+  @@index([authorId])
+  @@index([createdAt])
+  @@map("posts")
+}
+
+enum PostType {
+  GENERAL
+  STARTUP_UPDATE
+  JOB
+  ANNOUNCEMENT
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  postId    String
+  authorId  String
+  content   String
+  createdAt DateTime @default(now())
+
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@map("comments")
+}
+
+model Like {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  @@map("likes")
+}
+
+model Chat {
+  id          String   @id @default(cuid())
+  type        ChatType @default(DIRECT)
+  name        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members     ChatMember[]
+  messages    Message[]
+
+  @@map("chats")
+}
+
+enum ChatType {
+  DIRECT
+  GROUP
+  CHANNEL
+}
+
+model ChatMember {
+  id      String   @id @default(cuid())
+  chatId  String
+  userId  String
+  role    String   @default("member")
+  joinedAt DateTime @default(now())
+
+  chat    Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([chatId, userId])
+  @@map("chat_members")
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  chatId    String
+  senderId  String
+  content   String
+  type      String   @default("text")
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender    User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([chatId, createdAt])
+  @@map("messages")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  body      String?
+  data      Json?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read, createdAt])
+  @@map("notifications")
+}
+
+model Transaction {
+  id        String   @id @default(cuid())
+  userId    String
+  type      TransactionType
+  amount    Int
+  balance   Int
+  description String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("transactions")
+}
+
+enum TransactionType {
+  EARN
+  SPEND
+  PURCHASE
+  REFUND
+  BONUS
+  REFERRAL
+}
+
+model Subscription {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  plan      SubscriptionPlan @default(FREE)
+  status    String   @default("active")
+  startedAt DateTime @default(now())
+  expiresAt DateTime?
+  autoRenew Boolean  @default(false)
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+enum SubscriptionPlan {
+  FREE
+  PRO
+  BUSINESS
+}
+
+model Referral {
+  id          String   @id @default(cuid())
+  referrerId  String
+  referredId  String   @unique
+  reward      Int      @default(50)
+  createdAt   DateTime @default(now())
+
+  referrer    User     @relation("Referrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referred    User     @relation("Referred", fields: [referredId], references: [id], onDelete: Cascade)
+
+  @@map("referrals")
+}
