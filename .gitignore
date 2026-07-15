@@ -1,12 +1,50 @@
+# Dependencies
 node_modules/
-dist/
-build/
+.pnp
+.pnp.js
+
+# Build output
 .next/
+out/
+build/
+dist/
+*.tsbuildinfo
+
+# Environment
 .env
 .env.local
+.env.*.local
+!.env.example
+
+# Logs
+logs/
 *.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+Thumbs.db
+
+# Test
+coverage/
+.nyc_output/
+*.lcov
+
+# Misc
 .turbo/
 .cache/
-.DS_Store
-coverage/
-*.tsbuildinfo
+.uploads/
+tmp/
+temp/
+*.pid
+*.seed
+*.pid.lock
+
+# Prisma
+prisma/migrations/dev/
