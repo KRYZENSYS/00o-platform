@@ -1,0 +1,78 @@
+name: 🐛 Bug Report
+description: Xatolik haqida xabar bering
+title: "[BUG]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        00o.uz platformasida topilgan xatolik haqida xabar bering. Rahmat!
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Muhit
+      description: Xatolik qayerda yuz berdi?
+      options:
+        - Web (Next.js)
+        - API (Fastify)
+        - Telegram Bot
+        - Database
+        - CI/CD
+        - Docs
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Versiya
+      description: Qaysi versiyada xatolik yuz berdi?
+      placeholder: "1.0.0"
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Xatolik tavsifi
+      description: Xatolikning aniq tavsifini yozing
+      placeholder: Nimaga duch keldingiz?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Qayta tiklash bosqichlari
+      description: Xatolikni qayta tiklash uchun qadamlar
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Kutilgan natija
+      description: Nima bo'lishini kutgansiz?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Haqiqiy natija
+      description: Aslida nima bo'ldi?
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Skrinshotlar
+      description: Skrinshot yoki video havolalari
+    validations:
+      required: false
