@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -24,46 +24,42 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9.12.0
+          version: 9
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-          cache-dependency-path: apps/web/pnpm-lock.yaml
-
-      - name: Install root deps
+      - name: Install dependencies
         run: |
           cd ../..
-          npm install -g pnpm@9
           pnpm install --no-frozen-lockfile
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
 
       - name: Build
-        env:
-          NEXT_PUBLIC_API_URL: 'https://api.00o-uz.workers.dev/api/v1'
-          NEXT_PUBLIC_WS_URL: 'wss://api.00o-uz.workers.dev/ws'
-          NEXT_PUBLIC_APP_URL: 'https://kryzensys.github.io/00o-platform'
-          NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: 'ooouzbot'
-          NEXT_PUBLIC_ENABLE_AI: 'true'
-          NEXT_PUBLIC_ENABLE_MARKETPLACE: 'true'
-          NEXT_PUBLIC_ENABLE_JOBS: 'true'
-          NEXT_TELEMETRY_DISABLED: '1'
         run: |
-          pnpm run build || (echo "Trying with npm..." && npm run build)
+          pnpm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          NEXT_PUBLIC_API_URL: 'https://api.00o.uz/api/v1'
+          NEXT_PUBLIC_WS_URL: 'wss://api.00o.uz/ws'
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - name: Copy 404
+      - name: Create 404
         run: |
-          if [ -f out/404.html ]; then
-            echo "404 already exists"
-          else
-            cp out/index.html out/404.html
+          if [ -d "out" ]; then
+            if [ ! -f "out/404.html" ]; then
+              cp out/index.html out/404.html
+            fi
+            echo "✅ out/ tayyor"
+            ls -la out/
           fi
 
       - name: Upload artifact
