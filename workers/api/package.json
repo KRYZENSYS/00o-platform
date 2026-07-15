@@ -1,0 +1,21 @@
+{
+  "name": "@00o/api-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate": "wrangler d1 execute 00o-db --file=./schema.sql",
+    "db:seed": "wrangler d1 execute 00o-db --file=./seed.sql"
+  },
+  "dependencies": {
+    "hono": "^4.6.0",
+    "@00o/utils": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241218.0",
+    "wrangler": "^3.99.0",
+    "typescript": "^5.6.3"
+  }
+}
