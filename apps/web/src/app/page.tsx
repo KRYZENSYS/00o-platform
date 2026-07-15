@@ -1,92 +1,54 @@
 'use client';
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import {
-  Sparkles, Rocket, Briefcase, DollarSign, Users, TrendingUp,
-  ArrowRight, Check, Star, Globe, Zap, Shield, Crown, Code, BarChart3,
-  MessageCircle, Bell, Calendar, FileText,
-} from 'lucide-react';
+import { ArrowRight, Sparkles, Rocket, Briefcase, Users, DollarSign, Shield, Globe, Crown, Check, TrendingUp, MessageCircle, Code, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useAuthStore } from '@/store/auth';
 
-export default function LandingPage() {
-  const router = useRouter();
-  const { isAuthenticated, isInitialized } = useAuthStore();
-
-  useEffect(() => {
-    if (isInitialized && isAuthenticated) {
-      router.push('/dashboard');
-    }
-  }, [isInitialized, isAuthenticated, router]);
+export default function HomePage() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   return (
-    <div className="min-h-screen bg-white dark:bg-slate-950">
-      {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/80 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/80">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 md:px-6">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 via-pink-500 to-orange-500 text-base font-bold text-white">∞</div>
-            <span className="text-lg font-bold">00o.uz</span>
-          </Link>
-          <nav className="hidden items-center gap-6 md:flex">
-            <a href="#features" className="text-sm text-slate-600 hover:text-slate-900 dark:text-slate-400">Imkoniyatlar</a>
-            <a href="#ai" className="text-sm text-slate-600 hover:text-slate-900 dark:text-slate-400">AI</a>
-            <a href="#pricing" className="text-sm text-slate-600 hover:text-slate-900 dark:text-slate-400">Narxlar</a>
-            <a href="#startups" className="text-sm text-slate-600 hover:text-slate-900 dark:text-slate-400">Startaplar</a>
-          </nav>
-          <div className="flex items-center gap-2">
-            <Link href="/auth/login"><Button variant="ghost" size="sm">Kirish</Button></Link>
-            <Link href="/auth/register"><Button size="sm">Boshlash</Button></Link>
-          </div>
-        </div>
-      </header>
-
+    <div className="overflow-hidden">
       {/* Hero */}
-      <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-violet-500/5 via-pink-500/5 to-orange-500/5" />
+      <section className="relative min-h-[90vh] overflow-hidden bg-gradient-to-br from-violet-50 via-pink-50 to-orange-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-violet-500/20 via-transparent to-transparent" />
-        <div className="relative mx-auto max-w-7xl px-4 py-20 md:px-6 md:py-32">
-          <div className="mx-auto max-w-4xl text-center">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-violet-500/20 bg-violet-500/5 px-4 py-1.5 text-sm font-medium text-violet-500">
-              <Sparkles className="h-3.5 w-3.5" />
-              O'zbekistondagi #1 AI Startup Hub
-            </div>
-            <h1 className="mb-6 text-4xl font-bold leading-tight md:text-6xl lg:text-7xl">
-              <span className="bg-gradient-to-r from-violet-500 via-pink-500 to-orange-500 bg-clip-text text-transparent">G'oyangizni</span>
-              <br />
-              <span>global startapga aylantiring</span>
-            </h1>
-            <p className="mb-8 text-lg text-slate-600 dark:text-slate-400 md:text-xl">
-              AI yordamida startap yarating, jamoa toping, investor jalb qiling, professional xizmatlarni sotib oling.
-              Hammasi <strong className="text-slate-900 dark:text-white">bitta platformada</strong>.
-            </p>
-            <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <Link href="/auth/register"><Button size="lg" variant="gradient" className="w-full sm:w-auto">
-                Bepul boshlash <ArrowRight className="h-4 w-4" />
-              </Button></Link>
-              <Link href="/ai"><Button size="lg" variant="outline" className="w-full sm:w-auto">
-                <Sparkles className="h-4 w-4" /> AI bilan sinab ko'rish
-              </Button></Link>
-            </div>
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-6 text-sm text-slate-500">
-              <div className="flex items-center gap-1.5"><Check className="h-4 w-4 text-green-500" /> Kredit kartasiz</div>
-              <div className="flex items-center gap-1.5"><Check className="h-4 w-4 text-green-500" /> 100 🪙 bonus</div>
-              <div className="flex items-center gap-1.5"><Check className="h-4 w-4 text-green-500" /> 5 daqiqada tayyor</div>
-            </div>
+        <div className="absolute -right-20 top-20 h-72 w-72 animate-pulse rounded-full bg-violet-500/30 blur-3xl" />
+        <div className="absolute -left-20 bottom-20 h-72 w-72 animate-pulse rounded-full bg-pink-500/30 blur-3xl" />
+
+        <div className="container relative mx-auto flex min-h-[90vh] flex-col items-center justify-center px-4 py-20 text-center">
+          <div className={`mb-6 inline-flex items-center gap-2 rounded-full border border-violet-500/20 bg-white/50 px-4 py-1.5 text-xs font-medium backdrop-blur dark:bg-slate-900/50 ${mounted ? 'animate-fade-in' : 'opacity-0'}`}>
+            <Sparkles className="h-3 w-3 text-violet-500" />
+            <span>🇺🇿 O'zbekistondagi #1 AI Startup Hub</span>
           </div>
 
-          {/* Stats */}
-          <div className="mt-20 grid grid-cols-2 gap-4 md:grid-cols-4">
-            {[
-              { v: '12,500+', l: 'Foydalanuvchi' },
-              { v: '850+', l: 'Startap' },
-              { v: '2,300+', l: 'Xizmat' },
-              { v: '$1.2M+', l: 'Investitsiya' },
-            ].map((s) => (
-              <div key={s.l} className="rounded-2xl border border-slate-200 bg-white p-4 text-center dark:border-slate-800 dark:bg-slate-900">
-                <div className="text-2xl font-bold md:text-3xl">{s.v}</div>
-                <div className="mt-1 text-xs text-slate-500 md:text-sm">{s.l}</div>
+          <h1 className="max-w-4xl text-4xl font-black leading-tight md:text-6xl lg:text-7xl">
+            <span className="block">Kelajakni</span>
+            <span className="block gradient-text animate-gradient bg-[length:200%_200%]">bugun quring</span>
+          </h1>
+
+          <p className="mt-6 max-w-2xl text-base text-slate-600 dark:text-slate-300 md:text-lg">
+            AI yordamchi, startup ekotizimi, professional xizmatlar va investorlar — barchasi <strong>bitta platformada</strong>.
+            20+ AI vosita, 5 ta til modeli, real-time chat va undan ko'p.
+          </p>
+
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <Link href="/auth/register"><Button size="lg" variant="gradient">Bepul boshlash <ArrowRight className="h-4 w-4" /></Button></Link>
+            <Link href="/ai"><Button size="lg" variant="outline"><Sparkles className="h-4 w-4" /> AI ni sinab ko'ring</Button></Link>
+          </div>
+
+          <div className="mt-12 flex flex-wrap items-center justify-center gap-6 text-xs text-slate-500">
+            <span className="flex items-center gap-1"><Check className="h-3 w-3 text-green-500" /> 100 🪙 bonus</span>
+            <span className="flex items-center gap-1"><Check className="h-3 w-3 text-green-500" /> Karta kerak emas</span>
+            <span className="flex items-center gap-1"><Check className="h-3 w-3 text-green-500" /> Telegram orqali</span>
+            <span className="flex items-center gap-1"><Check className="h-3 w-3 text-green-500" /> O'zbek tilida</span>
+          </div>
+
+          <div className="mt-16 grid grid-cols-2 gap-3 md:grid-cols-4">
+            {[{ v: '20+', l: 'AI vosita' }, { v: '5', l: 'AI model' }, { v: '3', l: 'Til (UZ/RU/EN)' }, { v: '∞', l: 'G\'oyalar' }].map((s) => (
+              <div key={s.l} className="card text-center">
+                <div className="text-2xl font-black gradient-text md:text-3xl">{s.v}</div>
+                <div className="text-xs text-slate-500">{s.l}</div>
               </div>
             ))}
           </div>
@@ -94,107 +56,81 @@ export default function LandingPage() {
       </section>
 
       {/* Features */}
-      <section id="features" className="border-t border-slate-200 bg-slate-50 py-20 dark:border-slate-800 dark:bg-slate-900/50">
-        <div className="mx-auto max-w-7xl px-4 md:px-6">
+      <section className="bg-white py-20 dark:bg-slate-950">
+        <div className="container mx-auto px-4">
           <div className="mb-12 text-center">
-            <h2 className="mb-3 text-3xl font-bold md:text-4xl">Hamma narsa bir joyda</h2>
-            <p className="text-slate-600 dark:text-slate-400">Startap ekotizimingiz uchun kerak bo'lgan barcha vositalar</p>
+            <h2 className="text-3xl font-black md:text-4xl">Hammasi <span className="gradient-text">bir joyda</span></h2>
+            <p className="mt-2 text-slate-500">Startap yaratish uchun kerak bo'lgan barcha vositalar</p>
           </div>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {[
-              { i: Sparkles, c: 'from-violet-500 to-pink-500', t: 'AI yordamchi', d: '20+ AI vositalar: g\'oya, biznes-plan, kod, tarjima, kontent yaratish' },
-              { i: Rocket, c: 'from-pink-500 to-orange-500', t: 'Startap yaratish', d: 'G\'oyadan to MVPgacha - tez va oson, jamoa bilan birga' },
-              { i: Users, c: 'from-orange-500 to-yellow-500', t: 'Jamoa topish', d: 'Co-founder, dasturchi, dizayner, marketolog toping' },
-              { i: DollarSign, c: 'from-green-500 to-emerald-500', t: 'Investorlar', d: 'Angel investorlar va VC fondlar bilan bog\'laning' },
-              { i: Briefcase, c: 'from-blue-500 to-cyan-500', t: 'Marketplace', d: 'Xizmatlarni sotib oling va soting - dizayn, dev, marketing' },
-              { i: TrendingUp, c: 'from-purple-500 to-violet-500', t: 'Ish o\'rinlari', d: 'Eng yaxshi startaplarda ish toping yoki jamoangizni kengaytiring' },
+              { i: Sparkles, t: 'AI Yordamchi', d: '20+ AI vosita: g\'oya, biznes-plan, kod, tarjima, blog va boshqalar', c: 'from-violet-500 to-pink-500' },
+              { i: Rocket, t: 'Startup Hub', d: 'Startapingizni yarating, jamoa toping, investor jalb qiling', c: 'from-pink-500 to-orange-500' },
+              { i: Briefcase, t: 'Marketplace', d: 'Professional xizmatlar — dizayn, kod, marketing, kontent', c: 'from-blue-500 to-cyan-500' },
+              { i: Users, t: 'Jamoa topish', d: 'Ish bering yoki toping — to\'liq vakansiya va portfolio tizimi', c: 'from-green-500 to-emerald-500' },
+              { i: DollarSign, t: 'Investorlar', d: 'Pitch deck yarating, funding oling, ko\'rsatkichlarni kuzating', c: 'from-amber-500 to-orange-500' },
+              { i: MessageCircle, t: 'Real-time Chat', d: 'Jamoa, mijozlar, investorlar bilan tezkor aloqa', c: 'from-rose-500 to-pink-500' },
             ].map((f) => (
-              <div key={f.t} className="group rounded-2xl border border-slate-200 bg-white p-6 transition-all hover:border-violet-500/50 hover:shadow-xl dark:border-slate-800 dark:bg-slate-900">
-                <div className={`mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br ${f.c} text-white`}>
+              <div key={f.t} className="card group transition hover:shadow-xl">
+                <div className={`mb-3 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br text-white ${f.c}`}>
                   <f.i className="h-6 w-6" />
                 </div>
-                <h3 className="mb-2 text-lg font-bold">{f.t}</h3>
-                <p className="text-sm text-slate-600 dark:text-slate-400">{f.d}</p>
+                <h3 className="mb-1 text-lg font-bold">{f.t}</h3>
+                <p className="text-sm text-slate-500">{f.d}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* AI Section */}
-      <section id="ai" className="py-20">
-        <div className="mx-auto max-w-7xl px-4 md:px-6">
-          <div className="grid items-center gap-8 lg:grid-cols-2">
-            <div>
-              <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-violet-500/10 px-3 py-1 text-sm text-violet-500">
-                <Sparkles className="h-3.5 w-3.5" /> GroqCloud + Llama 3.3
+      {/* AI Tools */}
+      <section className="bg-slate-50 py-20 dark:bg-slate-900">
+        <div className="container mx-auto px-4">
+          <div className="mb-12 text-center">
+            <h2 className="text-3xl font-black md:text-4xl">20+ AI <span className="gradient-text">vosita</span></h2>
+            <p className="mt-2 text-slate-500">GroqCloud — eng tezkor AI inference</p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+            {[
+              { i: Sparkles, l: 'G\'oya', c: 'text-violet-500' }, { i: TrendingUp, l: 'Biznes-plan', c: 'text-pink-500' },
+              { i: Code, l: 'Kod', c: 'text-blue-500' }, { i: FileText, l: 'Rezyume', c: 'text-green-500' },
+              { i: Globe, l: 'Tarjima', c: 'text-orange-500' }, { i: FileText, l: 'Blog', c: 'text-red-500' },
+              { i: MessageCircle, l: 'Email', c: 'text-cyan-500' }, { i: Users, l: 'Pitch', c: 'text-amber-500' },
+              { i: Crown, l: 'Brend', c: 'text-rose-500' }, { i: Sparkles, l: 'Boshqalar', c: 'text-violet-500' },
+            ].map((t) => (
+              <div key={t.l} className="card flex flex-col items-center gap-2 p-3 text-center transition hover:shadow-md">
+                <t.i className={`h-6 w-6 ${t.c}`} /><span className="text-xs font-semibold">{t.l}</span>
               </div>
-              <h2 className="mb-4 text-3xl font-bold md:text-4xl">Eng kuchli AI yordamchi</h2>
-              <p className="mb-6 text-slate-600 dark:text-slate-400">
-                20+ AI vositalar sizning g'oyalaringizni tezlashtiradi. Startup g'oya, biznes-plan, kod yozish, marketing kontent - hammasi bir chatda.
-              </p>
-              <div className="space-y-3">
-                {[
-                  '💡 Startup g\'oya generatori',
-                  '📊 Biznes-plan yaratish',
-                  '💻 Kod yozish va tekshirish (Qwen Coder 32B)',
-                  '📝 Rezyume va cover letter',
-                  '🌐 Tarjima (60+ til)',
-                  '📱 Ijtimoiy tarmoq postlari',
-                ].map((f) => (
-                  <div key={f} className="flex items-center gap-2 text-sm"><Check className="h-4 w-4 text-violet-500" /> {f}</div>
-                ))}
-              </div>
-              <Link href="/ai" className="mt-6 inline-block">
-                <Button variant="gradient" size="lg">AI bilan boshlash <ArrowRight className="h-4 w-4" /></Button>
-              </Link>
-            </div>
-            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6 dark:border-slate-800 dark:bg-slate-900">
-              <div className="space-y-3">
-                {[
-                  { r: 'user', c: 'Menga AI startup g\'oya kerak. Byudjet 100M so\'m.' },
-                  { r: 'ai', c: '💡 EduTech AI Tutor: O\'zbek tilidagi shaxsiy repetitor...\n\n• MVP: 3 oy\n• Bozor: 5M+ o\'quvchi\n• Revenue: 99K so\'m/oy' },
-                  { r: 'user', c: 'Biznes-plan yoz' },
-                  { r: 'ai', c: '📊 1. Executive Summary\n2. Market Analysis (5M addressable)\n3. Revenue Model (SaaS freemium)\n4. Financial Projections\n5. Funding Required: $50K seed' },
-                ].map((m, i) => (
-                  <div key={i} className={`flex ${m.r === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-line ${m.r === 'user' ? 'bg-gradient-to-r from-violet-500 to-pink-500 text-white' : 'border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950'}`}>
-                      {m.c}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            ))}
+          </div>
+          <div className="mt-8 text-center">
+            <Link href="/ai"><Button variant="gradient" size="lg">Barchasini ko'rish <ArrowRight className="h-4 w-4" /></Button></Link>
           </div>
         </div>
       </section>
 
       {/* Pricing */}
-      <section id="pricing" className="border-t border-slate-200 bg-slate-50 py-20 dark:border-slate-800 dark:bg-slate-900/50">
-        <div className="mx-auto max-w-7xl px-4 md:px-6">
+      <section className="bg-white py-20 dark:bg-slate-950">
+        <div className="container mx-auto px-4">
           <div className="mb-12 text-center">
-            <h2 className="mb-3 text-3xl font-bold md:text-4xl">Sizga mos tarif</h2>
-            <p className="text-slate-600 dark:text-slate-400">Bepul boshlang, kerak bo'lganda yangilang</p>
+            <h2 className="text-3xl font-black md:text-4xl">Sodda <span className="gradient-text">narxlar</span></h2>
+            <p className="mt-2 text-slate-500">Har bir foydalanuvchiga mos tarif</p>
           </div>
-          <div className="grid gap-6 md:grid-cols-3">
+          <div className="mx-auto grid max-w-5xl gap-4 md:grid-cols-3">
             {[
-              { name: 'Free', price: '0', period: 'doim', features: ['100 🪙 bonus', '10 AI so\'rov/kun', '1 startap', 'Marketplace', 'Feed', 'Jamoa topish'], cta: 'Bepul boshlash', featured: false },
-              { name: 'Pro', price: '99 000', period: 'oyiga', features: ['500 🪙 bonus', '100 AI so\'rov/kun', '5 startap', 'Premium AI modellar', 'Prioritet support', 'Analytics', 'Reklama yo\'q'], cta: 'Pro ga o\'tish', featured: true },
-              { name: 'Business', price: '299 000', period: 'oyiga', features: ['2000 🪙 bonus', '1000 AI so\'rov/kun', '∞ startap', 'Jamoa (10 tagacha)', 'API access', 'Custom AI model', 'White-label'], cta: 'Business ga o\'tish', featured: false },
+              { n: 'Free', p: 0, c: 'Bepul', features: ['100 🪙 bonus', '5 AI so\'rov/kun', '1 ta startap', 'Bazaviy marketplace'] },
+              { n: 'Pro', p: 99000, c: '99 000 so\'m/oy', popular: true, features: ['500 🪙 har oy', '100 AI so\'rov/kun', '5 ta startap', 'Premium AI modellar', 'Reklama yo\'q', 'Prioritet support'] },
+              { n: 'Business', p: 299000, c: '299 000 so\'m/oy', features: ['2000 🪙 har oy', 'Cheksiz AI', 'Cheksiz startaplar', 'Maxsus modellar', 'API access', 'Maxsus menejer'] },
             ].map((p) => (
-              <div key={p.name} className={`relative rounded-3xl border p-6 ${p.featured ? 'border-violet-500 bg-white shadow-2xl shadow-violet-500/10 dark:bg-slate-900' : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'}`}>
-                {p.featured && <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-gradient-to-r from-violet-500 to-pink-500 px-3 py-0.5 text-xs font-bold text-white">Mashhur</div>}
-                <h3 className="mb-1 text-2xl font-bold">{p.name}</h3>
-                <div className="mb-4 flex items-baseline gap-1">
-                  <span className="text-4xl font-bold">{p.price}</span>
-                  <span className="text-slate-500">/ {p.period}</span>
-                </div>
-                <ul className="mb-6 space-y-2">
-                  {p.features.map((f) => (
-                    <li key={f} className="flex items-center gap-2 text-sm"><Check className="h-4 w-4 text-violet-500" /> {f}</li>
-                  ))}
+              <div key={p.n} className={`card relative ${p.popular ? 'border-violet-500 ring-2 ring-violet-500' : ''}`}>
+                {p.popular && <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-gradient-to-r from-violet-500 to-pink-500 px-3 py-1 text-xs font-bold text-white">⭐ MASHHUR</span>}
+                <h3 className="text-xl font-bold">{p.n}</h3>
+                <p className="mt-1 text-sm text-slate-500">{p.c}</p>
+                <div className="my-4 text-3xl font-black">{p.p === 0 ? 'Bepul' : `${p.p.toLocaleString()} so'm`}</div>
+                <ul className="space-y-2 text-sm">
+                  {p.features.map((f) => <li key={f} className="flex items-center gap-1.5"><Check className="h-4 w-4 text-green-500" /> {f}</li>)}
                 </ul>
-                <Link href="/auth/register"><Button variant={p.featured ? 'gradient' : 'outline'} fullWidth>{p.cta}</Button></Link>
+                <Button variant={p.popular ? 'gradient' : 'outline'} fullWidth className="mt-4">{p.p === 0 ? 'Bepul boshlash' : 'Tanlash'}</Button>
               </div>
             ))}
           </div>
@@ -202,26 +138,21 @@ export default function LandingPage() {
       </section>
 
       {/* CTA */}
-      <section className="py-20">
-        <div className="mx-auto max-w-4xl px-4 md:px-6">
-          <div className="rounded-3xl bg-gradient-to-br from-violet-500 via-pink-500 to-orange-500 p-8 text-center text-white md:p-12">
-            <h2 className="mb-3 text-3xl font-bold md:text-4xl">Tayyor boshlashga?</h2>
-            <p className="mb-6 opacity-90">12,500+ foydalanuvchi va 850+ startap bizga qo'shildi</p>
+      <section className="bg-gradient-to-br from-violet-500 via-pink-500 to-orange-500 py-20 text-white">
+        <div className="container mx-auto px-4 text-center">
+          <h2 className="text-3xl font-black md:text-4xl">Startapingizni bugun boshlang</h2>
+          <p className="mt-2 opacity-90">100,000+ g'oyalar, minglab startaplar, bitta platforma</p>
+          <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link href="/auth/register"><Button size="lg" className="bg-white text-violet-500 hover:bg-slate-100">Bepul ro'yxatdan o'tish</Button></Link>
+            <Link href="/ai"><Button size="lg" variant="outline" className="border-white text-white hover:bg-white/10">AI Demo</Button></Link>
           </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-200 py-8 dark:border-slate-800">
-        <div className="mx-auto max-w-7xl px-4 md:px-6">
-          <div className="flex flex-col items-center justify-between gap-4 md:flex-row">
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 via-pink-500 to-orange-500 text-sm font-bold text-white">∞</div>
-              <span className="font-bold">00o.uz</span>
-            </div>
-            <p className="text-sm text-slate-500">© 2026 00o.uz — O'zbekistondagi AI Startup Hub</p>
-          </div>
+      <footer className="border-t border-slate-200 py-10 dark:border-slate-800">
+        <div className="container mx-auto px-4 text-center text-sm text-slate-500">
+          <p>© 2026 00o.uz · Made with ❤️ in Uzbekistan</p>
+          <p className="mt-2 text-xs">KRYZENSYS · <Link href="https://t.me/ooouzbot" className="hover:underline">Telegram</Link></p>
         </div>
       </footer>
     </div>
