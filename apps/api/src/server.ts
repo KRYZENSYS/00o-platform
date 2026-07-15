@@ -1,4 +1,4 @@
-// 00o.uz - Fastify server
+// 00o.uz - Fastify server (with 120+ Tools Routes)
 import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
@@ -21,12 +21,13 @@ import { chatRoutes } from './routes/chat.routes';
 import { paymentRoutes } from './routes/payment.routes';
 import { uploadRoutes } from './routes/upload.routes';
 import { adminRoutes } from './routes/admin.routes';
+import { toolsRoutes } from './routes/tools.routes';
 
 const PORT = parseInt(process.env.PORT_API || '4000', 10);
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 export const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
-  keyPrefix: 'oo:',
+  keyPrefix: 'o:',
   maxRetriesPerRequest: 3,
 });
 
@@ -74,7 +75,7 @@ async function buildServer() {
     openapi: {
       info: {
         title: '00o.uz API',
-        description: 'O\'zbek tilidagi eng katta onlayn platforma API',
+        description: 'O\'zbek tilidagi eng katta onlayn platforma API - 120+ tools',
         version: '1.0.0',
         contact: { name: 'KRYZENSYS', url: 'https://00o.uz' },
       },
@@ -97,42 +98,33 @@ async function buildServer() {
   app.get('/ready', async () => {
     try {
       await redis.ping();
-      return { ready: true, redis: 'ok' };
-    } catch (err) {
-      return { ready: false, redis: 'down' };
+      return { ready: true };
+    } catch {
+      return { ready: false };
     }
   });
 
-  // ===== Auth decorator =====
-  app.decorate('authenticate', async (req: any, reply: any) => {
-    try { await req.jwtVerify(); }
-    catch (err) { return reply.code(401).send({ error: 'Unauthorized', message: 'Invalid or expired token' }); }
-  });
+  // ===== API Routes =====
+  await app.register(authRoutes, { prefix: '/api/auth' });
+  await app.register(userRoutes, { prefix: '/api/users' });
+  await app.register(todoRoutes, { prefix: '/api/todos' });
+  await app.register(noteRoutes, { prefix: '/api/notes' });
+  await app.register(habitRoutes, { prefix: '/api/habits' });
+  await app.register(postRoutes, { prefix: '/api/posts' });
+  await app.register(chatRoutes, { prefix: '/api/chats' });
+  await app.register(paymentRoutes, { prefix: '/api/payments' });
+  await app.register(uploadRoutes, { prefix: '/api/upload' });
+  await app.register(adminRoutes, { prefix: '/api/admin' });
 
-  // ===== Routes =====
-  await app.register(authRoutes, { prefix: '/api/v1/auth' });
-  await app.register(userRoutes, { prefix: '/api/v1/users' });
-  await app.register(todoRoutes, { prefix: '/api/v1/todos' });
-  await app.register(noteRoutes, { prefix: '/api/v1/notes' });
-  await app.register(habitRoutes, { prefix: '/api/v1/habits' });
-  await app.register(postRoutes, { prefix: '/api/v1/posts' });
-  await app.register(chatRoutes, { prefix: '/api/v1/chat' });
-  await app.register(paymentRoutes, { prefix: '/api/v1/payments' });
-  await app.register(uploadRoutes, { prefix: '/api/v1/upload' });
-  await app.register(adminRoutes, { prefix: '/api/v1/admin' });
+  // ===== MEGA Tools Routes (120+ endpoints, no auth required) =====
+  await app.register(toolsRoutes, { prefix: '/api' });
 
-  // ===== Error handler =====
-  app.setErrorHandler((error, req, reply) => {
-    req.log.error(error);
-    if (error.validation) {
-      return reply.code(400).send({ error: 'ValidationError', details: error.validation });
-    }
-    if (error.statusCode === 429) {
-      return reply.code(429).send({ error: 'TooManyRequests', message: 'Rate limit exceeded' });
-    }
-    reply.code(error.statusCode || 500).send({
-      error: error.name || 'InternalError',
-      message: NODE_ENV === 'production' ? 'Internal server error' : error.message,
+  // ===== 404 =====
+  app.setNotFoundHandler((req, reply) => {
+    reply.code(404).send({
+      error: 'Not Found',
+      message: `Route ${req.method} ${req.url} not found`,
+      hint: 'See /api/tools/docs for all 120+ available tools',
     });
   });
 
@@ -143,23 +135,13 @@ async function start() {
   try {
     const app = await buildServer();
     await app.listen({ port: PORT, host: '0.0.0.0' });
-    app.log.info(`🚀 00o.uz API running at http://localhost:${PORT}`);
-    app.log.info(`📚 Docs at http://localhost:${PORT}/docs`);
+    app.log.info(`🚀 00o.uz API server listening on port ${PORT}`);
+    app.log.info(`📚 Docs: http://localhost:${PORT}/docs`);
+    app.log.info(`🛠️  Tools: http://localhost:${PORT}/api/tools/list`);
   } catch (err) {
-    console.error('Failed to start:', err);
+    console.error(err);
     process.exit(1);
   }
 }
 
-// Graceful shutdown
-process.on('SIGINT', async () => { await redis.quit(); process.exit(0); });
-process.on('SIGTERM', async () => { await redis.quit(); process.exit(0); });
-
 start();
-
-// Type augmentation
-declare module 'fastify' {
-  interface FastifyInstance {
-    authenticate: (req: any, reply: any) => Promise<void>;
-  }
-}
