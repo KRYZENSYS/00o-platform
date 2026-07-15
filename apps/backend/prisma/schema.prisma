@@ -1,0 +1,1001 @@
+// Prisma Schema for 00o.uz - AI Startup & Freelancer Hub
+// Enterprise-grade database with 25+ models
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// AUTHENTICATION & USERS
+// ============================================
+
+model User {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  username        String   @unique
+  passwordHash    String?
+  firstName       String?
+  lastName        String?
+  bio             String?  @db.Text
+  avatar          String?
+  cover           String?
+  phone           String?
+  telegram        String?  @unique
+  githubUrl       String?
+  linkedinUrl     String?
+  websiteUrl      String?
+  location        String?
+  role            UserRole @default(USER)
+  isVerified      Boolean  @default(false)
+  isPremium       Boolean  @default(false)
+  premiumUntil    DateTime?
+  twoFactorEnabled Boolean @default(false)
+  twoFactorSecret String?
+  emailVerified   Boolean  @default(false)
+  phoneVerified   Boolean  @default(false)
+  language        Language @default(UZ)
+  timezone        String   @default("Asia/Tashkent")
+  xpPoints        Int      @default(0)
+  level           Int      @default(1)
+  referralCode    String   @unique @default(cuid())
+  referredBy      String?
+  status          UserStatus @default(ACTIVE)
+  lastSeen        DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  profile         Profile?
+  freelancer      Freelancer?
+  startup         Startup?
+  investor        Investor?
+  sentMessages    Message[]    @relation("SentMessages")
+  conversations   Participant[]
+  posts           Post[]
+  comments        Comment[]
+  likes           Like[]
+  bookmarks       Bookmark[]
+  followers       Follow[]     @relation("Followers")
+  following       Follow[]     @relation("Following")
+  notifications   Notification[]
+  jobs            Job[]
+  applications    Application[]
+  services        Service[]
+  orders          Order[]      @relation("BuyerOrders")
+  reviews         Review[]     @relation("Reviewer")
+  receivedReviews Review[]     @relation("Reviewed")
+  payments        Payment[]
+  subscriptions   Subscription[]
+  achievements    UserAchievement[]
+  sessions        Session[]
+  aiChats         AIChat[]
+  tokens          Token[]
+  tickets         Ticket[]
+  otpCodes        OTPCode[]
+  loginAttempts   LoginAttempt[]
+  auditLogs       AuditLog[]
+  devices         Device[]
+  referrals       Referral[]   @relation("Referrer")
+  referred        Referral[]   @relation("Referred")
+  teamMemberships TeamMember[]
+  teamRequests    TeamRequest[]
+  investments     Investment[]
+  bookmarks_user  Bookmark[]   @relation("UserBookmarks")
+
+  @@index([email])
+  @@index([username])
+  @@index([referralCode])
+}
+
+enum UserRole { SUPER_ADMIN ADMIN MODERATOR USER FREELANCER STARTUP_OWNER INVESTOR PREMIUM }
+enum UserStatus { ACTIVE BANNED SUSPENDED DELETED PENDING }
+enum Language { UZ EN RU }
+
+model Profile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  headline        String?
+  skills          String[]
+  experience      String?  @db.Text
+  education       Json?
+  certificates    Json?
+  languages       Json?
+  hourlyRate      Float?
+  availability    Availability @default(AVAILABLE)
+  portfolio       Json?
+  resume          String?
+  rating          Float    @default(0)
+  totalReviews    Int      @default(0)
+  completedJobs   Int      @default(0)
+  responseTime    Int?     // hours
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+enum Availability { AVAILABLE BUSY UNAVAILABLE }
+
+model Session {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token       String   @unique
+  refreshToken String  @unique
+  ipAddress   String?
+  userAgent   String?  @db.Text
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([token])
+  @@index([userId])
+}
+
+model Token {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      TokenType
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([token])
+}
+
+enum TokenType { REFRESH RESET_PASSWORD EMAIL_VERIFY TELEGRAM_LOGIN }
+
+model OTPCode {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code      String
+  type      OTPType
+  target    String   // email or phone
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([code])
+  @@index([target])
+}
+
+enum OTPType { EMAIL PHONE TWO_FACTOR }
+
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email     String
+  ip        String
+  success   Boolean
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([ip])
+}
+
+model Device {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  type      String   // mobile, desktop, tablet
+  os        String?
+  browser   String?
+  ip        String
+  location  String?
+  trusted   Boolean  @default(false)
+  lastUsed  DateTime @default(now())
+  createdAt DateTime @default(now())
+}
+
+// ============================================
+// FREELANCER MARKETPLACE
+// ============================================
+
+model Freelancer {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String   @db.Text
+  category    String
+  subCategory String?
+  tags        String[]
+  hourlyRate  Float
+  packages    Json?    // basic, standard, premium
+  portfolio   Json?
+  rating      Float    @default(0)
+  reviews     Int      @default(0)
+  completedJobs Int    @default(0)
+  totalEarned Float    @default(0)
+  responseTime Int     @default(24) // hours
+  isPro       Boolean  @default(false)
+  proUntil    DateTime?
+  isOnline    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  services    Service[]
+  orders      Order[]
+
+  @@index([category])
+  @@index([rating])
+}
+
+model Service {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  freelancerId String?
+  freelancer  Freelancer? @relation(fields: [freelancerId], references: [id], onDelete: SetNull)
+  title       String
+  slug        String   @unique
+  description String   @db.Text
+  category    String
+  subCategory String?
+  tags        String[]
+  coverImage   String?
+  gallery     String[]
+  videos      String[]
+  packages    Json     // { basic: {price, delivery, revisions, features}, ... }
+  requirements String?  @db.Text
+  rating      Float    @default(0)
+  reviews     Int      @default(0)
+  orders      Int      @default(0)
+  views       Int      @default(0)
+  isActive    Boolean  @default(true)
+  isFeatured  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orders_rel  Order[]
+  reviews_rel Review[]
+
+  @@index([category])
+  @@index([slug])
+  @@index([rating])
+}
+
+model Order {
+  id          String   @id @default(cuid())
+  buyerId     String
+  buyer       User     @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  sellerId    String
+  serviceId   String?
+  service     Service? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  freelancerId String?
+  freelancer  Freelancer? @relation(fields: [freelancerId], references: [id], onDelete: SetNull)
+  package     String   // basic, standard, premium
+  price       Float
+  fee         Float    @default(0)
+  total       Float
+  status      OrderStatus @default(PENDING)
+  requirements String? @db.Text
+  delivery    Json?
+  deadline    DateTime?
+  deliveredAt DateTime?
+  completedAt DateTime?
+  cancelledAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  review      Review?
+  payment     Payment?
+
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([status])
+}
+
+enum OrderStatus { PENDING ACCEPTED IN_PROGRESS DELIVERED REVISION COMPLETED CANCELLED DISPUTED REFUNDED }
+
+model Review {
+  id        String   @id @default(cuid())
+  reviewerId String
+  reviewer  User     @relation("Reviewer", fields: [reviewerId], references: [id], onDelete: Cascade)
+  reviewedId String
+  reviewed  User     @relation("Reviewed", fields: [reviewedId], references: [id], onDelete: Cascade)
+  serviceId String?
+  service   Service? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  orderId   String?  @unique
+  order     Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  rating    Int      // 1-5
+  comment   String   @db.Text
+  response  String?  @db.Text
+  isPublic  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([reviewedId])
+  @@index([serviceId])
+}
+
+// ============================================
+// STARTUP HUB
+// ============================================
+
+model Startup {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  slug        String   @unique
+  tagline     String
+  description String   @db.Text
+  logo        String?
+  banner      String?
+  category    String
+  industry    String?
+  stage       StartupStage @default(IDEA)
+  websiteUrl  String?
+  githubUrl   String?
+  demoUrl     String?
+  pitchDeck   String?
+  businessPlan String?
+  screenshots String[]
+  videoUrl    String?
+  roadmap     Json?
+  teamSize    Int      @default(1)
+  foundedYear Int?
+  location    String?
+  fundingGoal Float    @default(0)
+  fundingRaised Float  @default(0)
+  revenue     Float    @default(0)
+  monthlyUsers Int     @default(0)
+  followers   Int      @default(0)
+  likes       Int      @default(0)
+  views       Int      @default(0)
+  rating      Float    @default(0)
+  isVerified  Boolean  @default(false)
+  isFeatured  Boolean  @default(false)
+  status      StartupStatus @default(ACTIVE)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members     TeamMember[]
+  updates     StartupUpdate[]
+  milestones  Milestone[]
+  investments Investment[]
+
+  @@index([category])
+  @@index([stage])
+}
+
+enum StartupStage { IDEA MVP BETA LAUNCHED GROWTH SCALING EXITED }
+enum StartupStatus { ACTIVE PAUSED CLOSED ACQUIRED }
+
+model StartupUpdate {
+  id        String   @id @default(cuid())
+  startupId String
+  startup   Startup  @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  title     String
+  content   String   @db.Text
+  image     String?
+  likes     Int      @default(0)
+  comments  Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+model Milestone {
+  id        String   @id @default(cuid())
+  startupId String
+  startup   Startup  @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  title     String
+  description String? @db.Text
+  status    MilestoneStatus @default(PENDING)
+  dueDate   DateTime?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+}
+
+enum MilestoneStatus { PENDING IN_PROGRESS COMPLETED CANCELLED }
+
+// ============================================
+// INVESTOR PLATFORM
+// ============================================
+
+model Investor {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  type        InvestorType @default(ANGEL)
+  firmName    String?
+  title       String?
+  bio         String?  @db.Text
+  avatar      String?
+  websiteUrl  String?
+  linkedinUrl String?
+  categories  String[] // startup categories of interest
+  stages      StartupStage[]
+  minInvestment Float  @default(0)
+  maxInvestment Float  @default(0)
+  portfolio   Json?
+  totalInvested Float @default(0)
+  totalDeals  Int    @default(0)
+  rating      Float   @default(0)
+  isVerified  Boolean @default(false)
+  isFeatured  Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  investments Investment[]
+}
+
+enum InvestorType { ANGEL VC ACCELERATOR CORPORATE SYNDICATE }
+
+model Investment {
+  id        String   @id @default(cuid())
+  investorId String
+  investor  Investor @relation(fields: [investorId], references: [id], onDelete: Cascade)
+  startupId String
+  startup   Startup  @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount    Float
+  equity    Float?   // percentage
+  round     String?  // seed, series A, etc
+  status    InvestmentStatus @default(PENDING)
+  terms     Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum InvestmentStatus { PENDING NEGOTIATING AGREED COMPLETED REJECTED }
+
+// ============================================
+// JOBS
+// ============================================
+
+model Job {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  slug        String   @unique
+  description String   @db.Text
+  category    String
+  type        JobType
+  location    String?
+  remote      Boolean  @default(false)
+  salaryMin   Float?
+  salaryMax   Float?
+  currency    String   @default("UZS")
+  experience  ExperienceLevel
+  skills      String[]
+  benefits    String[]
+  company     String?
+  companyLogo String?
+  isActive    Boolean  @default(true)
+  isFeatured  Boolean  @default(false)
+  views       Int      @default(0)
+  applications Int     @default(0)
+  deadline    DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  applications_rel Application[]
+
+  @@index([category])
+  @@index([type])
+}
+
+enum JobType { FULL_TIME PART_TIME CONTRACT INTERNSHIP FREELANCE }
+enum ExperienceLevel { ENTRY JUNIOR MIDDLE SENIOR LEAD }
+
+model Application {
+  id        String   @id @default(cuid())
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resume    String?
+  coverLetter String? @db.Text
+  expectedSalary Float?
+  status    ApplicationStatus @default(PENDING)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([jobId, userId])
+}
+
+enum ApplicationStatus { PENDING REVIEWING SHORTLISTED INTERVIEWED ACCEPTED REJECTED WITHDRAWN }
+
+// ============================================
+// TEAM BUILDER
+// ============================================
+
+model Team {
+  id          String   @id @default(cuid())
+  startupId   String?
+  name        String
+  description String   @db.Text
+  category    String   // development, design, marketing, etc
+  skills      String[]
+  status      TeamStatus @default(RECRUITING)
+  isPublic    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members     TeamMember[]
+  requests    TeamRequest[]
+}
+
+enum TeamStatus { RECRUITING FULL CLOSED }
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String
+  joinedAt  DateTime @default(now())
+
+  @@unique([teamId, userId])
+}
+
+model TeamRequest {
+  id        String   @id @default(cuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String
+  message   String   @db.Text
+  status    RequestStatus @default(PENDING)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum RequestStatus { PENDING ACCEPTED REJECTED }
+
+// ============================================
+// MESSAGING
+// ============================================
+
+model Conversation {
+  id          String   @id @default(cuid())
+  type        ConvType @default(DIRECT)
+  name        String?
+  avatar      String?
+  isGroup     Boolean  @default(false)
+  lastMessage String?  @db.Text
+  lastMessageAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  participants Participant[]
+  messages     Message[]
+}
+
+enum ConvType { DIRECT GROUP CHANNEL }
+
+model Participant {
+  id             String   @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           ParticipantRole @default(MEMBER)
+  lastRead       DateTime?
+  joinedAt       DateTime @default(now())
+
+  @@unique([conversationId, userId])
+}
+
+enum ParticipantRole { ADMIN MEMBER }
+
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  content        String   @db.Text
+  type           MessageType @default(TEXT)
+  attachments    Json?
+  replyToId      String?
+  editedAt       DateTime?
+  deletedAt      DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([conversationId])
+  @@index([senderId])
+}
+
+enum MessageType { TEXT IMAGE VIDEO FILE VOICE LOCATION SYSTEM }
+
+// ============================================
+// SOCIAL FEATURES
+// ============================================
+
+model Post {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String   @db.Text
+  images    String[]
+  videos    String[]
+  type      PostType @default(GENERAL)
+  visibility PostVisibility @default(PUBLIC)
+  likes     Int      @default(0)
+  comments  Int      @default(0)
+  shares    Int      @default(0)
+  views     Int      @default(0)
+  isPinned  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  comments_rel Comment[]
+  likes_rel    Like[]
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+enum PostType { GENERAL ANNOUNCEMENT PROJECT IDEA QUESTION ACHIEVEMENT }
+enum PostVisibility { PUBLIC FOLLOWERS PRIVATE }
+
+model Comment {
+  id        String   @id @default(cuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String   @db.Text
+  parentId  String?
+  likes     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Like {
+  id        String   @id @default(cuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      LikeType @default(LIKE)
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId])
+}
+
+enum LikeType { LIKE LOVE HAHA WOW SAD ANGRY }
+
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  follower    User     @relation("Followers", fields: [followerId], references: [id], onDelete: Cascade)
+  followingId String
+  following   User     @relation("Following", fields: [followingId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followingId])
+}
+
+model Bookmark {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation("UserBookmarks", fields: [userId], references: [id], onDelete: Cascade)
+  type      String   // post, startup, service, job, freelancer, investor
+  targetId  String   // ID of bookmarked item
+  targetUserId String?
+  targetUser User?  @relation(fields: [targetUserId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, type, targetId])
+  @@index([userId])
+}
+
+// ============================================
+// NOTIFICATIONS
+// ============================================
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotifType
+  title     String
+  body      String   @db.Text
+  data      Json?
+  isRead    Boolean  @default(false)
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+}
+
+enum NotifType { LIKE COMMENT FOLLOW MESSAGE ORDER PAYMENT JOB APPLICATION SYSTEM PROMO }
+
+// ============================================
+// PAYMENTS
+// ============================================
+
+model Payment {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderId     String?  @unique
+  order       Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  type        PaymentType
+  provider    PaymentProvider
+  amount      Float
+  currency    String   @default("UZS")
+  fee         Float    @default(0)
+  status      PaymentStatus @default(PENDING)
+  externalId  String?  // external payment system ID
+  payload     Json?
+  paidAt      DateTime?
+  refundedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([externalId])
+}
+
+enum PaymentType { ORDER SUBSCRIPTION DEPOSIT WITHDRAW REFUND }
+enum PaymentProvider { CLICK PAYME UZUM PAYPAL STRIPE CRYPTO }
+enum PaymentStatus { PENDING PROCESSING COMPLETED FAILED CANCELLED REFUNDED }
+
+model Subscription {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan        String   // free, pro, premium
+  status      String   @default("active")
+  startedAt   DateTime @default(now())
+  expiresAt   DateTime
+  cancelledAt DateTime?
+  autoRenew   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model PromoCode {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  type        String   // percent, fixed
+  value       Float
+  maxUses     Int      @default(0)
+  used        Int      @default(0)
+  minAmount   Float    @default(0)
+  expiresAt   DateTime?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model Referral {
+  id          String   @id @default(cuid())
+  referrerId  String
+  referrer    User     @relation("Referrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredId  String
+  referred    User     @relation("Referred", fields: [referredId], references: [id], onDelete: Cascade)
+  reward      Float    @default(0)
+  status      String   @default("pending")
+  createdAt   DateTime @default(now())
+  paidAt      DateTime?
+}
+
+// ============================================
+// AI
+// ============================================
+
+model AIChat {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  model     String   @default("llama-3.3-70b-versatile")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages  AIMessage[]
+}
+
+model AIMessage {
+  id        String   @id @default(cuid())
+  chatId    String
+  chat      AIChat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  role      String   // user, assistant, system
+  content   String   @db.Text
+  tokens    Int      @default(0)
+  model     String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([chatId])
+}
+
+model AILog {
+  id        String   @id @default(cuid())
+  userId    String?
+  feature   String   // chat, code, analyze, etc
+  model     String
+  tokensIn  Int      @default(0)
+  tokensOut Int      @default(0)
+  duration  Int      @default(0) // ms
+  success   Boolean  @default(true)
+  error     String?  @db.Text
+  cost      Float    @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// ============================================
+// ACHIEVEMENTS & GAMIFICATION
+// ============================================
+
+model Achievement {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  description String
+  icon        String
+  xp          Int      @default(0)
+  category    String
+  createdAt   DateTime @default(now())
+
+  users       UserAchievement[]
+}
+
+model UserAchievement {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  progress      Int      @default(0)
+  completed     Boolean  @default(false)
+  completedAt   DateTime?
+  createdAt     DateTime @default(now())
+
+  @@unique([userId, achievementId])
+}
+
+// ============================================
+// BLOG & CMS
+// ============================================
+
+model Blog {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  excerpt     String   @db.Text
+  content     String   @db.Text
+  cover       String?
+  category    String
+  tags        String[]
+  authorId    String
+  status      String   @default("draft") // draft, published, archived
+  views       Int      @default(0)
+  likes       Int      @default(0)
+  comments    Int      @default(0)
+  readingTime Int      @default(0) // minutes
+  isFeatured  Boolean  @default(false)
+  publishedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+  @@index([slug])
+  @@index([publishedAt])
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  icon      String?
+  type      String   // service, job, startup, blog
+  order     Int      @default(0)
+  isActive  Boolean  @default(true)
+}
+
+// ============================================
+// SUPPORT
+// ============================================
+
+model Ticket {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject   String
+  message   String   @db.Text
+  category  String
+  priority  String   @default("medium")
+  status    String   @default("open")
+  assignedTo String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  replies   TicketReply[]
+}
+
+model TicketReply {
+  id        String   @id @default(cuid())
+  ticketId  String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  userId    String
+  message   String   @db.Text
+  isStaff   Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+// ============================================
+// EVENTS
+// ============================================
+
+model Event {
+  id          String   @id @default(cuid())
+  title       String
+  slug        String   @unique
+  description String   @db.Text
+  cover       String?
+  type        EventType
+  category    String
+  startDate   DateTime
+  endDate     DateTime?
+  location    String?
+  isOnline    Boolean  @default(false)
+  meetingUrl  String?
+  maxAttendees Int?
+  attendees   Int      @default(0)
+  price       Float    @default(0)
+  currency    String   @default("UZS")
+  prizes      Json?
+  tags        String[]
+  organizer   String?
+  status      String   @default("upcoming") // upcoming, ongoing, ended, cancelled
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([type])
+  @@index([startDate])
+}
+
+enum EventType { HACKATHON COMPETITION CONFERENCE WORKSHOP MEETUP WEBINAR }
+
+// ============================================
+// SECURITY & MONITORING
+// ============================================
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  resource  String?
+  resourceId String?
+  ip        String?
+  userAgent String?  @db.Text
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  category  String   @default("general")
+  isPublic  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
