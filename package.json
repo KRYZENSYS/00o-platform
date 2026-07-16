@@ -4,33 +4,29 @@
   "private": true,
   "description": "00o.uz — O'zbek tilidagi eng katta onlayn platforma",
   "engines": {
-    "node": ">=22.0.0",
-    "pnpm": ">=9.0.0"
+    "node": "22.x"
   },
+  "packageManager": "pnpm@9.15.0",
   "scripts": {
     "dev": "pnpm -r --parallel dev",
-    "dev:web": "pnpm --filter web dev",
-    "dev:api": "pnpm --filter api dev",
-    "dev:bot": "pnpm --filter bot dev",
+    "dev:web": "pnpm --filter 00o-web dev",
+    "dev:api": "pnpm --filter 00o-api dev",
+    "dev:bot": "pnpm --filter 00o-bot dev",
     "build": "pnpm -r build",
-    "build:web": "pnpm --filter web build",
-    "build:api": "pnpm --filter api build",
+    "build:web": "pnpm --filter 00o-web build",
+    "build:api": "pnpm --filter 00o-api build",
     "start": "pnpm -r start",
     "lint": "pnpm -r lint",
     "lint:fix": "pnpm -r lint:fix",
     "type-check": "pnpm -r type-check",
     "test": "pnpm -r test",
     "test:watch": "pnpm -r test:watch",
-    "clean": "pnpm -r exec rm -rf dist .next node_modules .turbo",
-    "prisma:generate": "pnpm --filter api prisma:generate",
-    "prisma:migrate": "pnpm --filter api prisma:migrate",
-    "prisma:studio": "pnpm --filter api prisma:studio"
+    "clean": "pnpm -r exec rm -rf dist .next node_modules .turbo"
   },
   "devDependencies": {
     "typescript": "^5.6.3",
     "@types/node": "^22.7.5",
     "prettier": "^3.3.3",
     "eslint": "^9.16.0"
-  },
-  "packageManager": "pnpm@9.0.0"
+  }
 }
