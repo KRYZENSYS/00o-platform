@@ -3,8 +3,8 @@
   "version": 2,
   "framework": "nextjs",
   "rootDirectory": "apps/web",
-  "buildCommand": "cd ../.. && pnpm install --no-frozen-lockfile && pnpm --filter @00o/web build",
-  "installCommand": "cd ../.. && pnpm install --no-frozen-lockfile",
+  "buildCommand": "cd ../.. && npm install -g pnpm@9 && pnpm install && pnpm --filter @00o/web build",
+  "installCommand": "cd ../.. && npm install -g pnpm@9 && pnpm install",
   "outputDirectory": ".next",
   "regions": ["fra1"],
   "github": {
