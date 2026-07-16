@@ -4,17 +4,17 @@
   "private": true,
   "description": "00o.uz — O'zbek tilidagi eng katta onlayn platforma",
   "engines": {
-    "node": "22.x"
+    "node": ">=20.0.0"
   },
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "dev": "pnpm -r --parallel dev",
-    "dev:web": "pnpm --filter 00o-web dev",
-    "dev:api": "pnpm --filter 00o-api dev",
-    "dev:bot": "pnpm --filter 00o-bot dev",
+    "dev:web": "pnpm --filter @00o/web dev",
+    "dev:api": "pnpm --filter @00o/api dev",
+    "dev:bot": "pnpm --filter @00o/bot dev",
     "build": "pnpm -r build",
-    "build:web": "pnpm --filter 00o-web build",
-    "build:api": "pnpm --filter 00o-api build",
+    "build:web": "pnpm --filter @00o/web build",
+    "build:api": "pnpm --filter @00o/api build",
     "start": "pnpm -r start",
     "lint": "pnpm -r lint",
     "lint:fix": "pnpm -r lint:fix",
