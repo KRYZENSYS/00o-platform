@@ -3,24 +3,13 @@
   "version": 2,
   "framework": "nextjs",
   "rootDirectory": "apps/web",
-  "buildCommand": "cd ../.. && npm install -g pnpm@9 && pnpm install && pnpm --filter @00o/web build",
-  "installCommand": "cd ../.. && npm install -g pnpm@9 && pnpm install",
+  "buildCommand": "cd ../.. && npm install --legacy-peer-deps && npm run build --workspace=apps/web",
+  "installCommand": "cd ../.. && npm install --legacy-peer-deps",
   "outputDirectory": ".next",
   "regions": ["fra1"],
   "github": {
     "silent": false,
     "autoAlias": true,
     "productionBranch": "main"
-  },
-  "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "X-XSS-Protection", "value": "1; mode=block" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
-      ]
-    }
-  ]
+  }
 }
